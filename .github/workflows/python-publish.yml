@@ -40,6 +40,9 @@ jobs:
       env:
         CMAKE_GENERATOR: Ninja
 
+    - name: Check distribution
+      run: twine check dist/*
+  
     - name: Publish Package
       uses: pypa/gh-action-pypi-publish@v1.5.0
       with:
