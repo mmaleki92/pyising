@@ -14,7 +14,6 @@
 #define LEFT  2
 #define DOWN  3
 
-
 std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
@@ -22,7 +21,7 @@ std::vector<Results> run_parallel_metropolis(
     unsigned int seed_base,
     const std::string& output_dir,
     bool use_wolff,
-    bool save_all_configs  // New flag
+    bool save_all_configs
 ) {
     std::vector<Results> results(temps.size());
 
@@ -33,7 +32,18 @@ std::vector<Results> run_parallel_metropolis(
     // Parallel loop over temperatures
     #pragma omp parallel for
     for (size_t i = 0; i < temps.size(); ++i) {
-        unsigned int seed = seed_base + i;
+        // Get thread information
+        int thread_id = omp_get_thread_num();
+        int total_threads = omp_get_num_threads();
+
+        // Print thread information (ensure thread-safe output)
+        #pragma omp critical
+        {
+            std::cout << "[Thread " << thread_id << " of " << total_threads << "] "
+                      << "Starting simulation for T = " << temps[i] << " (Index " << i << ")\n";
+        }
+
+        unsigned int seed = seed_base + static_cast<unsigned int>(i);
         Ising2D model(L, seed);
         model.initialize_spins();
         model.compute_neighbors();
@@ -50,7 +60,6 @@ std::vector<Results> run_parallel_metropolis(
 
         results[i] = model.get_results();
 
-        // Format temperature to string with fixed precision
         double T = temps[i];
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << T;
@@ -60,28 +69,42 @@ std::vector<Results> run_parallel_metropolis(
         std::string T_dir = L_dir + "/T_" + T_str;
         std::filesystem::create_directories(T_dir);
 
+
+        // We can save configurations depending on user preference:
+        //  - If save_all_configs == true, save all measured configurations
+        //  - Otherwise, just save the final configuration
         if (save_all_configs) {
             std::string all_filename = T_dir + "/all_configs.npy";
             const auto& all_configs = results[i].all_configurations;
             if (!all_configs.empty()) {
                 size_t num_steps = all_configs.size();
                 size_t L_size = static_cast<size_t>(L);
+
+                // Flatten the list of configurations into a single 1D array for npy_save
                 std::vector<int> flattened;
                 flattened.reserve(num_steps * L_size * L_size);
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
+
+                // Save all configurations in NPY format
                 cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
             }
         } else {
-            // Save only the final configuration as before
+            // Save only the final configuration
             std::string filename = T_dir + "/config.npy";
             const std::vector<int>& config = results[i].configuration;
-            cnpy::npy_save(filename, config.data(), {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
+            cnpy::npy_save(filename, config.data(),
+                           {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
         }
+
+        // Verbose: print out the computed observables
+        std::cout << "[Thread " << thread_id << "] Completed simulation for T = " << temps[i]
+                  << ", Binder = " << results[i].binder
+                  << ", Mean Magnetization = " << results[i].meanMag << "\n";
     }
 
-    return results;
+    return results;  // Return the results for any subsequent analysis
 }
 
 void Ising2D::do_metropolis_step(double tstar)

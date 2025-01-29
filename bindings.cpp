@@ -38,13 +38,14 @@ PYBIND11_MODULE(pyising, m) {
         .def_readwrite("mean_ene", &Results::meanEne)
         .def_readwrite("configuration", &Results::configuration);
 
-    m.def("run_parallel_metropolis", &run_parallel_metropolis,
-        py::arg("temps"),
-        py::arg("L"),
-        py::arg("N_steps"),
-        py::arg("seed_base"),
-        py::arg("output_dir"),  // Add output_dir parameter
-        py::arg("use_wolff") = false,
-        py::arg("save_all_configs") = false);
+    m.def("run_parallel_metropolis", &run_parallel_metropolis, "Run the parallel Metropolis simulation",
+          py::arg("temps"),
+          py::arg("L"),
+          py::arg("N_steps"),
+          py::arg("seed_base"),
+          py::arg("output_dir"),
+          py::arg("use_wolff"),
+          py::arg("save_all_configs"),
+          py::call_guard<py::gil_scoped_release>()); // Release GIL during execution
 
 }
