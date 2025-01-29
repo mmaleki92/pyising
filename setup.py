@@ -1,16 +1,25 @@
-from skbuild import setup
+from skbuild import setup  # Use scikit-build
+from setuptools import find_packages
 
 setup(
     name="pyising",
     version="0.1.0",
-    description="2D Ising model simulation with Python bindings",
     author="Morteza Maleki",
-    license="MIT",
-    packages=["pyising"],
-    package_dir={"pyising": "pyising"},
-    python_requires=">=3.6",
-    install_requires=["numpy"],
-    setup_requires=["scikit-build", "cmake>=3.10", "ninja", "pybind11>=2.6"],
-    cmake_args=["-DBUILD_EXECUTABLE=OFF"],
-    include_package_data=True,
+    author_email="maleki.morteza92@gmail.com",
+    description="Python bindings for the Ising2D C++ simulation",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
+    url="https://github.com/yourusername/Ising2DProject",
+    packages=find_packages(),
+    cmake_install_dir="pyising",  # Ensure CMake installs the module correctly
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "Programming Language :: C++",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    python_requires='>=3.6',
+    install_requires=[
+        "pybind11>=2.5.0",
+    ],
 )

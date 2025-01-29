@@ -1,0 +1,6 @@
+# MANIFEST.in
+include CMakeLists.txt
+include src/*.cpp
+include src/*.hpp
+include pyising/__init__.py
+recursive-include cnpy *

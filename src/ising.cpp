@@ -16,7 +16,6 @@
 
 std::vector<Results> Ising2D::run_parallel_metropolis(
     const std::vector<double>& temps,
-    int L,
     int N_steps,
     unsigned int seed_base,
     const std::string& output_dir,

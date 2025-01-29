@@ -24,7 +24,7 @@ public:
     
     bool m_save_all_configs = false;
     std::vector<std::vector<int>> m_all_configs;
-
+    int L = L;
     // Public API
     void initialize_spins();
     void compute_neighbors();
@@ -41,7 +41,7 @@ public:
     // Method to get the current spin configuration as +1/-1
     std::vector<int> get_configuration() const;
     std::vector<Results> run_parallel_metropolis(
-        const std::vector<double>& temps, int L, int N_steps,
+        const std::vector<double>& temps, int N_steps,
         unsigned int seed_base, const std::string& output_dir,
         bool use_wolff, bool save_all_configs
         );

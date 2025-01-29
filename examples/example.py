@@ -1,5 +1,5 @@
 import os
-from build import pyising
+from pyising import pyising
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm

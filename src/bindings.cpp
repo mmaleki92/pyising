@@ -8,8 +8,6 @@ PYBIND11_MODULE(pyising, m) {
         .def(py::init<int, unsigned int>(), 
              py::arg("L"), 
              py::arg("seed") = 12345U)
-
-        // Existing bindings...
         .def("initialize_spins", &Ising2D::initialize_spins)
         .def("compute_neighbors", &Ising2D::compute_neighbors)
         .def("compute_energy", &Ising2D::compute_energy)
@@ -33,7 +31,6 @@ PYBIND11_MODULE(pyising, m) {
         .def("run_parallel_metropolis", &Ising2D::run_parallel_metropolis,
             "Run the parallel Metropolis simulation",
             py::arg("temps"),
-            py::arg("L"),
             py::arg("N_steps"),
             py::arg("seed_base"),
             py::arg("output_dir"),
