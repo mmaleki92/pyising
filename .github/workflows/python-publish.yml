@@ -14,11 +14,6 @@ jobs:
       with:
         submodules: recursive  # Ensure cnpy submodule is initialized if needed
 
-    - name: Install System Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake build-essential
-
     - name: Set up Python
       uses: actions/setup-python@v3
       with:
@@ -40,6 +35,15 @@ jobs:
       env:
         CMAKE_GENERATOR: Ninja
 
+    - name: Clean old build artifacts
+      run: |
+        rm -rf dist
+        rm -rf build
+        rm -rf *.egg-info
+
+    - name: Build package
+      run: python -m build
+  
     - name: Check distribution
       run: twine check dist/*
   
