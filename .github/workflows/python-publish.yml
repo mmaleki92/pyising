@@ -12,12 +12,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        submodules: recursive  # If using cnpy as a submodule
+        submodules: recursive  # Ensure cnpy submodule is initialized if needed
 
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential
+        sudo apt-get install -y cmake build-essential ninja
 
     - name: Set up Python
       uses: actions/setup-python@v3
@@ -27,11 +27,14 @@ jobs:
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pybind11 scikit-build build
-      
+        pip install pybind11 scikit-build build ninja
+
     - name: Build Package
-      run: python -m build --wheel
-      
+      run: |
+        export pybind11_DIR=$(python -c 'import pybind11; print(pybind11.get_cmake_dir())')
+        python -m build --wheel
+      env:
+        CMAKE_GENERATOR: Ninja
 
     - name: Publish Package
       uses: pypa/gh-action-pypi-publish@v1.5.0
