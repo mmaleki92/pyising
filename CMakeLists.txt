@@ -17,6 +17,7 @@ endif()
 # Manually include pybind11
 add_subdirectory(pybind11)
 include_directories(pybind11/include)  # Include pybind11 headers
+
 add_subdirectory(cnpy)
 option(BUILD_EXECUTABLE "Build the ising_demo executable" ON)
 install(TARGETS cnpy LIBRARY DESTINATION .)  # Key fix
@@ -46,10 +47,12 @@ target_include_directories(ising PUBLIC
 target_link_libraries(ising PUBLIC cnpy OpenMP::OpenMP_CXX)
 
 # Build the Python module using pybind11
-pybind11_add_module(_pyising src/bindings.cpp)
+# pybind11_add_module(_pyising src/bindings.cpp)
+add_library(_pyising MODULE src/bindings.cpp)
+target_link_libraries(_pyising PRIVATE pybind11::module ising OpenMP::OpenMP_CXX)
 
 # Link OpenMP to the pybind11 module
-target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
+# target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
 
 set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")  # RPATH fix
 target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
