@@ -20,8 +20,9 @@ std::vector<Results> run_parallel_metropolis(
     int L,
     int N_steps,
     unsigned int seed_base,
-    const std::string& output_dir,  // New output directory parameter
-    bool use_wolff = false
+    const std::string& output_dir,
+    bool use_wolff,
+    bool save_all_configs  // New flag
 ) {
     std::vector<Results> results(temps.size());
 
@@ -29,12 +30,17 @@ std::vector<Results> run_parallel_metropolis(
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
     std::filesystem::create_directories(L_dir);
 
+    // Parallel loop over temperatures
     #pragma omp parallel for
     for (size_t i = 0; i < temps.size(); ++i) {
         unsigned int seed = seed_base + i;
         Ising2D model(L, seed);
         model.initialize_spins();
         model.compute_neighbors();
+
+        if (save_all_configs) {
+            model.enable_save_all_configs(true);
+        }
 
         if (use_wolff) {
             model.do_step_wolff(temps[i], N_steps);
@@ -54,15 +60,30 @@ std::vector<Results> run_parallel_metropolis(
         std::string T_dir = L_dir + "/T_" + T_str;
         std::filesystem::create_directories(T_dir);
 
-        // Save configuration as NPY file
-        std::string filename = T_dir + "/config.npy";
-        const std::vector<int>& config = results[i].configuration;
-        cnpy::npy_save(filename, config.data(), {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
+        if (save_all_configs) {
+            std::string all_filename = T_dir + "/all_configs.npy";
+            const auto& all_configs = results[i].all_configurations;
+            if (!all_configs.empty()) {
+                size_t num_steps = all_configs.size();
+                size_t L_size = static_cast<size_t>(L);
+                std::vector<int> flattened;
+                flattened.reserve(num_steps * L_size * L_size);
+                for (const auto& config : all_configs) {
+                    flattened.insert(flattened.end(), config.begin(), config.end());
+                }
+                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
+            }
+        } else {
+            // Save only the final configuration as before
+            std::string filename = T_dir + "/config.npy";
+            const std::vector<int>& config = results[i].configuration;
+            cnpy::npy_save(filename, config.data(), {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
+        }
     }
 
     return results;
 }
-// NEW addition: single-step method for Metropolis
+
 void Ising2D::do_metropolis_step(double tstar)
 {
     // If you want to avoid re-calculating these factors every step, 
@@ -225,6 +246,9 @@ void Ising2D::measure_observables(double N) {
     m_meanEne  += ene;
     m_meanEne2 += ene2;
     m_meanEne4 += (ene2 * ene2);
+    if (m_save_all_configs) {
+            m_all_configs.push_back(get_configuration());
+    }
 }
 
 void Ising2D::do_step_metropolis(double tstar, int N) {

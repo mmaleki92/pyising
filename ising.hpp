@@ -4,16 +4,27 @@
 #include <random>
 
 struct Results {
+    // Existing members
     double binder;
     double meanMag;
+    double meanMag2;
+    double meanMag4;
     double meanEne;
-    std::vector<int> configuration; // Add configuration data
+    double meanEne2;
+    double meanEne4;
+    std::vector<int> configuration;
+    // New member to hold all configurations
+    std::vector<std::vector<int>> all_configurations;
 };
 
 class Ising2D
 {
 public:
     Ising2D(int L, unsigned int seed);
+    
+    bool m_save_all_configs = false;
+    std::vector<std::vector<int>> m_all_configs;
+
     // Public API
     void initialize_spins();
     void compute_neighbors();
@@ -41,9 +52,26 @@ public:
 
     // Number of spins in one lattice dimension
     int get_L() const { return m_L; }
+
     Results get_results() const {
-        return {m_binder, m_meanMag, m_meanEne, get_configuration()};
-    }    
+        Results res;
+        // Copy over the observables to the struct
+        res.binder          = m_binder;
+        res.meanMag         = m_meanMag;
+        res.meanMag2        = m_meanMag2;
+        res.meanMag4        = m_meanMag4;
+        res.meanEne         = m_meanEne;
+        res.meanEne2        = m_meanEne2;
+        res.meanEne4        = m_meanEne4;
+        // Spins/configurations
+        res.configuration   = get_configuration();
+        res.all_configurations = m_all_configs;
+        return res;
+    }
+
+    void enable_save_all_configs(bool enable) {
+        m_save_all_configs = enable;
+    }
 private:
     // Internal methods
     void metropolis_flip_spin();
