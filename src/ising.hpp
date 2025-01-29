@@ -40,7 +40,11 @@ public:
     
     // Method to get the current spin configuration as +1/-1
     std::vector<int> get_configuration() const;
-
+    std::vector<Results> run_parallel_metropolis(
+        const std::vector<double>& temps, int L, int N_steps,
+        unsigned int seed_base, const std::string& output_dir,
+        bool use_wolff, bool save_all_configs
+        );
     // Accessors for measured quantities
     double get_magnetization() const { return m_meanMag; }
     double get_magnetization2() const { return m_meanMag2; }

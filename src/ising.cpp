@@ -14,7 +14,7 @@
 #define LEFT  2
 #define DOWN  3
 
-std::vector<Results> run_parallel_metropolis(
+std::vector<Results> Ising2D::run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
     int N_steps,
