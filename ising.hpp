@@ -2,22 +2,26 @@
 
 #include <vector>
 #include <random>
-#include <fstream>
-#include <cmath>
-#include <algorithm>
 
 class Ising2D
 {
 public:
     Ising2D(int L, unsigned int seed);
-
     // Public API
     void initialize_spins();
     void compute_neighbors();
     double compute_energy();
     double magnetization() const;
+    // Existing "batch" methods (optional to keep)
     void do_step_metropolis(double tstar, int N);
     void do_step_wolff(double tstar, int N);
+
+    // NEW addition: single-step methods for Python loops
+    void do_metropolis_step(double tstar);
+    void do_wolff_step(double tstar);
+    
+    // Method to get the current spin configuration as +1/-1
+    std::vector<int> get_configuration() const;
 
     // Accessors for measured quantities
     double get_magnetization() const { return m_meanMag; }
@@ -38,8 +42,6 @@ private:
     void measure_observables(double N);
     void thermalize_metropolis(double tstar);
     void thermalize_wolff(double tstar);
-
-private:
     int m_L;
     int m_SIZE;
     std::mt19937 m_gen;
@@ -47,18 +49,9 @@ private:
     std::uniform_real_distribution<double> m_ran_u;
     std::uniform_int_distribution<int> m_brandom;
     
-    // Spin storage
-    // Using bool to store spin up/down, internally interpret: 
-    // spin[i] = 0 => -1, spin[i] = 1 => +1
     std::vector<bool> m_spins;
-
-    // Neighbors: [site_index][0..3]
     std::vector< std::vector<int> > m_neighbors;
-
-    // Precomputed exponential factors for Metropolis acceptance
-    double m_h[5]; // h indices: h[(deltaE+4)/2] due to i in [-4, -2, 0, 2, 4]
-
-    // Current energy
+    std::vector<double> m_h; // Changed from double m_h[5] to std::vector<double>
     double m_energy;
 
     // Measured quantities
@@ -70,7 +63,10 @@ private:
     double m_meanEne4;
     double m_binder;
 
-    // Helpers
+private:
+    // Private methods for flipping spins, building clusters, etc.
     void compute_metropolis_factors(double tstar);
-    inline int spin_val(bool s) const { return (s ? 1 : -1); }
+
+    // NEW utility method: interpret bool spin as ±1
+    inline int spin_val(bool s) const { return (s ? +1 : -1); }
 };

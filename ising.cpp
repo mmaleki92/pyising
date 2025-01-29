@@ -2,11 +2,50 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
+#include <vector>
+
 
 #define UP    0
 #define RIGHT 1
 #define LEFT  2
 #define DOWN  3
+
+
+// NEW addition: single-step method for Metropolis
+void Ising2D::do_metropolis_step(double tstar)
+{
+    // If you want to avoid re-calculating these factors every step, 
+    // you could store tstar in a member variable and only recompute 
+    // if tstar changes significantly. For simplicity, we recompute below:
+    compute_metropolis_factors(tstar);
+
+    // Perform exactly one spin-flip attempt
+    metropolis_flip_spin();
+}
+
+// NEW addition: single-step method for Wolff
+void Ising2D::do_wolff_step(double tstar)
+{
+    // Probability for adding a neighbor to the cluster
+    double p = 1.0 - std::exp(-2.0 / tstar);
+
+    // Pick a random spin
+    int pos = m_ran_pos(m_gen);
+
+    // Flip cluster around pos
+    wolff_add_to_cluster(pos, p);
+}
+
+// Existing method (for reference)
+std::vector<int> Ising2D::get_configuration() const
+{
+    std::vector<int> config(m_SIZE, 0);
+    for (int i = 0; i < m_SIZE; i++)
+    {
+        config[i] = spin_val(m_spins[i]); // +1 or -1
+    }
+    return config;
+}
 
 Ising2D::Ising2D(int L, unsigned int seed)
     : m_L(L),
@@ -30,11 +69,12 @@ Ising2D::Ising2D(int L, unsigned int seed)
 
 void Ising2D::initialize_spins()
 {
-    for (int i = 0; i < m_SIZE; i++)
-    {
+    for (int i = 0; i < m_SIZE; i++) {
         m_spins[i] = (m_brandom(m_gen) == 1); 
     }
+    m_energy = compute_energy(); // Initialize energy correctly
 }
+
 
 void Ising2D::compute_neighbors()
 {
@@ -59,27 +99,17 @@ void Ising2D::compute_neighbors()
 double Ising2D::compute_energy()
 {
     int totalEnergy = 0;
-    for (int i = 0; i < m_SIZE; i++)
-    {
+    for (int i = 0; i < m_SIZE; i++) {
+        int s_i = spin_val(m_spins[i]);
         int sum_neigh = spin_val(m_spins[m_neighbors[i][UP]]) 
                       + spin_val(m_spins[m_neighbors[i][DOWN]]) 
                       + spin_val(m_spins[m_neighbors[i][RIGHT]]) 
                       + spin_val(m_spins[m_neighbors[i][LEFT]]);
-        // local energy = -spin[i]*(sum_of_neighbors)
-        // but the code as provided uses a different counting for "delta"
-        // We'll keep consistent with original approach: energy for spin i
-        // was effectively 2 * sum_neigh - 4 for (spin=+1) or 4 - 2 * sum_neigh for (spin=-1).
-        // That equals - spin[i]* ( sum_of_neighbors*(2) ) + constant.
-        // We'll just replicate the old formula:
-
-        if (m_spins[i]) // spin = +1
-            totalEnergy += (2 * sum_neigh - 4);
-        else            // spin = -1
-            totalEnergy += (4 - 2 * sum_neigh);
+        totalEnergy += s_i * sum_neigh;
     }
-    // The original code scaled by 2.0 / SIZE
-    return 2.0 * totalEnergy / (1.0 * m_SIZE);
+    return -totalEnergy / 2.0; // Correct energy calculation
 }
+
 
 double Ising2D::magnetization() const
 {
@@ -93,42 +123,36 @@ double Ising2D::magnetization() const
 
 void Ising2D::compute_metropolis_factors(double tstar)
 {
-    // h[i] for i in [-4,-2,0,2,4] => index = (i+4)/2 => h[ (deltaE +4)/2 ]
-    // deltaE from flipping one spin can be in [-4, -2, 0, 2, 4].
-    // The original code used: exp(-2*i/tstar) to fill h
-    for (int i = -4; i <= 4; i += 2)
-    {
-        double val = std::exp((-2.0 * i)/tstar);
-        m_h[(i + 4) / 2] = (val < 1.0) ? val : 1.0;
+    m_h.resize(5); // For deltaE values: -8, -4, 0, +4, +8
+    for (int deltaE : {-8, -4, 0, 4, 8}) {
+        int idx = (deltaE + 8) / 4;
+        if (deltaE <= 0) {
+            m_h[idx] = 1.0;
+        } else {
+            m_h[idx] = std::exp(-deltaE / tstar);
+        }
     }
 }
 
 void Ising2D::metropolis_flip_spin()
 {
     int index = m_ran_pos(m_gen);
-    // sum of neighbors in +1/-1 form
     int sum_neigh = spin_val(m_spins[m_neighbors[index][UP]]) 
                   + spin_val(m_spins[m_neighbors[index][DOWN]]) 
                   + spin_val(m_spins[m_neighbors[index][RIGHT]]) 
                   + spin_val(m_spins[m_neighbors[index][LEFT]]);
-
-    // spin before flip in +1/-1
     int currentSpin = spin_val(m_spins[index]);
-    // if spin = +1 => dE = deltaE = 2*(sum_neigh) - 4
-    // if spin = -1 => dE = 4 - 2*(sum_neigh)
-    int deltaE = 0;
-    if (currentSpin == +1)
-        deltaE = (2 * sum_neigh - 4);
-    else
-        deltaE = (4 - 2 * sum_neigh);
+    int deltaE = 2 * currentSpin * sum_neigh;
 
-    int idx = (deltaE + 4)/2; // to index m_h
-    if (m_ran_u(m_gen) < m_h[idx])
-    {
-        // Accept flip
+    int idx = (deltaE + 8) / 4;
+    if (idx < 0 || idx >= m_h.size()) {
+        // Handle error: unexpected deltaE value
+        return;
+    }
+
+    if (m_ran_u(m_gen) < m_h[idx]) {
         m_spins[index] = !m_spins[index];
-        // Update total energy
-        m_energy += (2.0 * deltaE) / (1.0 * m_SIZE);
+        m_energy += deltaE; // Update total energy correctly
     }
 }
 
