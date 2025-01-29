@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "ising.hpp"
-
+#include "ising.cpp"
 namespace py = pybind11;
 
 PYBIND11_MODULE(pyising, m) {
@@ -31,5 +31,14 @@ PYBIND11_MODULE(pyising, m) {
         .def("get_energy2", &Ising2D::get_energy2)
         .def("get_energy4", &Ising2D::get_energy4)
         .def("get_binder_cumulant", &Ising2D::get_binder_cumulant);
+
+    py::class_<Results>(m, "Results")
+        .def_readonly("binder", &Results::binder)
+        .def_readonly("meanMag", &Results::meanMag)
+        .def_readonly("meanEne", &Results::meanEne);
+
+    m.def("run_parallel_metropolis", &run_parallel_metropolis,
+          py::arg("temps"), py::arg("L"), py::arg("N_steps"),
+          py::arg("seed_base"), py::arg("use_wolff") = false);
 
 }

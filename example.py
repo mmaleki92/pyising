@@ -4,219 +4,249 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-def simulate_ising(L, seed, steps, temperatures, output_dir="simulation_data"):
+def simulate_ising(lattice_sizes, seed, steps, temperatures, output_dir="simulation_data"):
     """
-    Simulate the 2D Ising model over a range of temperatures and store results.
+    Simulate the 2D Ising model over a range of lattice sizes and temperatures, storing results.
 
     Parameters:
-    - L (int): Lattice size (L x L).
+    - lattice_sizes (list of int): List of lattice sizes (e.g., [16, 32, 64]).
     - seed (int): Seed for random number generator.
     - steps (int): Number of simulation steps per temperature.
     - temperatures (list or np.array): List of temperatures to simulate.
     - output_dir (str): Directory to store simulation data.
 
     Returns:
-    - results (dict): Dictionary containing averaged properties for each temperature.
+    - results (dict): Nested dictionary containing averaged properties for each lattice size and temperature.
     """
-    # Total number of spins
-    N = L * L
-
-    # Initialize lists to store results
-    results = {
-        'Temperature': [],
-        'Magnetization': [],
-        'Energy': [],
-        'Binder Cumulant': [],
-        'Magnetic Susceptibility': [],
-        'Specific Heat': []
-    }
+    # Initialize a nested dictionary to store results
+    results = {}
 
     # Ensure the main output directory exists
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
+        print(f"Created main output directory: {output_dir}")
 
-    # Loop over each temperature
-    for T in tqdm(temperatures, desc="Simulating Temperatures"):
-        # Format temperature to two decimal places for directory naming
-        T_formatted = f"{T:.2f}"
-        temp_dir = os.path.join(output_dir, f"T_{T_formatted}")
+    # Loop over each lattice size
+    for L in tqdm(lattice_sizes, desc="Simulating Lattice Sizes"):
+        results[L] = {}  # Initialize dictionary for this lattice size
 
-        # Create a subdirectory for the current temperature
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
-            print(f"  Created directory for T={T_formatted}: {temp_dir}")
+        # Format lattice size for directory naming
+        L_formatted = f"L_{L}"
+        size_dir = os.path.join(output_dir, L_formatted)
 
-        # Initialize the Ising model
-        model = pyising.Ising2D(L, seed)
-        model.initialize_spins()
-        model.compute_neighbors()  # Ensure neighbors are computed
+        # Create a subdirectory for the current lattice size
+        if not os.path.exists(size_dir):
+            os.makedirs(size_dir)
+            print(f"  Created directory for lattice size {L}: {size_dir}")
 
-        # Thermalize the system before measurements
-        model.do_step_metropolis(T, 1000)  # Thermalization steps
+        # Loop over each temperature
+        for T in tqdm(temperatures, desc=f"Simulating Temperatures for L={L}", leave=False):
+            # Format temperature to two decimal places for directory naming
+            T_formatted = f"T_{T:.2f}"
+            temp_dir = os.path.join(size_dir, T_formatted)
 
-        # Initialize accumulators for measurements
-        mag_sum = 0.0
-        ene_sum = 0.0
-        mag2_sum = 0.0
-        ene2_sum = 0.0
-        mag4_sum = 0.0
+            # Create a subdirectory for the current temperature
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+                print(f"    Created directory for T={T_formatted}: {temp_dir}")
 
-        # List to store spin configurations
-        configurations = []
+            # Initialize the Ising model
+            model = pyising.Ising2D(L, seed)
+            model.initialize_spins()
+            model.compute_neighbors()  # Ensure neighbors are computed
 
-        # Perform simulation steps
-        for step in range(1, steps + 1):
-            model.do_step_metropolis(T, 1)  # Single Metropolis step
+            # Thermalize the system before measurements
+            model.do_step_metropolis(T, 1000)  # Thermalization steps
 
-            # Retrieve measurements
-            mag = model.get_magnetization()
-            ene = model.get_energy_mean()
+            # Initialize accumulators for measurements
+            mag_sum = 0.0
+            ene_sum = 0.0
+            mag2_sum = 0.0
+            ene2_sum = 0.0
+            mag4_sum = 0.0
 
-            mag_sum += mag
-            ene_sum += ene
-            mag2_sum += model.get_magnetization2()
-            ene2_sum += model.get_energy2()
-            mag4_sum += model.get_magnetization4()
+            # List to store spin configurations
+            configurations = []
 
-            # Retrieve the current spin configuration
-            config_list = model.get_configuration()
-            configurations.append(config_list)
+            # Perform simulation steps
+            for step in range(1, steps + 1):
+                model.do_step_metropolis(T, 1)  # Single Metropolis step
 
-            # Optional: Save configurations at specific intervals to manage memory
-            # For example, save every 100 steps
-            # if step % 100 == 0:
-            #     config_array = np.array(configurations)
-            #     np.save(os.path.join(temp_dir, f"config_step_{step}.npy"), config_array)
-            #     configurations = []
+                # Retrieve measurements
+                mag = model.get_magnetization()
+                ene = model.get_energy_mean()
 
-        # Calculate averages
-        avg_mag = mag_sum / steps
-        avg_ene = ene_sum / steps
-        avg_mag2 = mag2_sum / steps
-        avg_ene2 = ene2_sum / steps
-        avg_mag4 = mag4_sum / steps
+                mag_sum += mag
+                ene_sum += ene
+                mag2_sum += model.get_magnetization2()
+                ene2_sum += model.get_energy2()
+                mag4_sum += model.get_magnetization4()
 
-        # Calculate Binder cumulant: U = 1 - <m^4> / (3 <m^2>^2)
-        binder = 1.0 - (avg_mag4 / (3.0 * (avg_mag2 ** 2)))
+                # Retrieve the current spin configuration
+                config_list = model.get_configuration()
+                configurations.append(config_list)
 
-        # Calculate Magnetic Susceptibility: χ = N ( <m²> - <m>² ) / T
-        susceptibility = (avg_mag2 - avg_mag**2) * N / T
+                # Optional: Save configurations at specific intervals to manage memory
+                # For example, save every 100 steps
+                # if step % 100 == 0:
+                #     config_array = np.array(configurations)
+                #     np.save(os.path.join(temp_dir, f"config_step_{step}.npy"), config_array)
+                #     configurations = []
 
-        # Calculate Specific Heat: C = ( <E²> - <E>² ) / (T²)
-        specific_heat = (avg_ene2 - avg_ene**2) / (T ** 2)
+            # Calculate averages
+            avg_mag = mag_sum / steps
+            avg_ene = ene_sum / steps
+            avg_mag2 = mag2_sum / steps
+            avg_ene2 = ene2_sum / steps
+            avg_mag4 = mag4_sum / steps
 
-        # Store the results
-        results['Temperature'].append(T)
-        results['Magnetization'].append(avg_mag)
-        results['Energy'].append(avg_ene)
-        results['Binder Cumulant'].append(binder)
-        results['Magnetic Susceptibility'].append(susceptibility)
-        results['Specific Heat'].append(specific_heat)
+            # Total number of spins
+            N = L * L
 
-        # Convert configurations list to a NumPy array for efficient storage
-        configurations_np = np.array(configurations, dtype=np.int32)
+            # Calculate Binder cumulant: U = 1 - <m^4> / (3 <m^2>^2)
+            binder = 1.0 - (avg_mag4 / (3.0 * (avg_mag2 ** 2)))
 
-        # Define the filename for storing configurations
-        config_filename = os.path.join(temp_dir, "configurations.npy")
+            # Calculate Magnetic Susceptibility: χ = N ( <m²> - <m>² ) / T
+            susceptibility = (avg_mag2 - avg_mag**2) * N / T
 
-        # Save all configurations for the current temperature
-        np.save(config_filename, configurations_np)
-        print(f"  Saved configurations to {config_filename}")
+            # Calculate Specific Heat: C = ( <E²> - <E>² ) / (T²)
+            specific_heat = (avg_ene2 - avg_ene**2) / (T ** 2)
 
-    # Optionally, save the aggregated results to a CSV file for easy analysis
-    results_array = np.array([
-        results['Temperature'],
-        results['Magnetization'],
-        results['Energy'],
-        results['Binder Cumulant'],
-        results['Magnetic Susceptibility'],
-        results['Specific Heat']
-    ]).T  # Transpose to have each row correspond to a temperature
+            # Store the results in the nested dictionary
+            results[L][T] = {
+                'Magnetization': avg_mag,
+                'Energy': avg_ene,
+                'Binder Cumulant': binder,
+                'Magnetic Susceptibility': susceptibility,
+                'Specific Heat': specific_heat
+            }
 
-    # Define the path for the results file
-    results_filepath = os.path.join(output_dir, "results.csv")
+            # Convert configurations list to a NumPy array for efficient storage
+            configurations_np = np.array(configurations, dtype=np.int32)
 
-    # Save the results to CSV
-    np.savetxt(results_filepath, results_array, delimiter=",",
-               header="Temperature,Magnetization,Energy,Binder_Cumulant,Magnetic_Susceptibility,Specific_Heat",
-               comments='')
-    print(f"Saved aggregated results to {results_filepath}")
+            # Define the filename for storing configurations
+            config_filename = os.path.join(temp_dir, "configurations.npy")
+
+            # Save all configurations for the current temperature and lattice size
+            np.save(config_filename, configurations_np)
+            print(f"    Saved configurations to {config_filename}")
+
+        # Optional: Save aggregated results for this lattice size to a CSV file
+        save_results_csv(results, L, size_dir)
 
     return results
 
-def plot_results(results):
+def save_results_csv(results, L, size_dir):
     """
-    Plot the simulation results.
+    Save the aggregated results for a specific lattice size to a CSV file.
 
     Parameters:
-    - results (dict): Dictionary containing averaged properties for each temperature.
+    - results (dict): Nested dictionary containing simulation results.
+    - L (int): Current lattice size.
+    - size_dir (str): Directory path for the current lattice size.
     """
-    temperatures = results['Temperature']
-    magnetizations = results['Magnetization']
-    energies = results['Energy']
-    binder_cumulants = results['Binder Cumulant']
-    susceptibilities = results['Magnetic Susceptibility']
-    specific_heats = results['Specific Heat']
+    # Extract all temperatures for this lattice size
+    temperatures = sorted(results[L].keys())
 
-    plt.figure(figsize=(18, 10))
+    # Prepare data for CSV
+    data = []
+    for T in temperatures:
+        data.append([
+            T,
+            results[L][T]['Magnetization'],
+            results[L][T]['Energy'],
+            results[L][T]['Binder Cumulant'],
+            results[L][T]['Magnetic Susceptibility'],
+            results[L][T]['Specific Heat']
+        ])
 
-    # Plot Magnetization vs Temperature
-    plt.subplot(2, 3, 1)
-    plt.plot(temperatures, magnetizations, 'o-', color='blue')
-    plt.xlabel('Temperature (T)')
-    plt.ylabel('Average Magnetization ⟨m⟩')
-    plt.title('Magnetization vs Temperature')
-    plt.grid(True)
+    # Convert to NumPy array
+    data_array = np.array(data)
 
-    # Plot Energy vs Temperature
-    plt.subplot(2, 3, 2)
-    plt.plot(temperatures, energies, 's-', color='red')
-    plt.xlabel('Temperature (T)')
-    plt.ylabel('Average Energy ⟨E⟩')
-    plt.title('Energy vs Temperature')
-    plt.grid(True)
+    # Define the path for the results file
+    results_filepath = os.path.join(size_dir, "results.csv")
 
-    # Plot Binder Cumulant vs Temperature
-    plt.subplot(2, 3, 3)
-    plt.plot(temperatures, binder_cumulants, 'd-', color='green')
-    plt.xlabel('Temperature (T)')
-    plt.ylabel('Binder Cumulant U')
-    plt.title('Binder Cumulant vs Temperature')
-    plt.grid(True)
+    # Save the results to CSV
+    header = "Temperature,Magnetization,Energy,Binder_Cumulant,Magnetic_Susceptibility,Specific_Heat"
+    np.savetxt(results_filepath, data_array, delimiter=",", header=header, comments='', fmt=['%.2f', '%.6f', '%.6f', '%.6f', '%.6f', '%.6f'])
+    print(f"  Saved aggregated results to {results_filepath}")
 
-    # Plot Magnetic Susceptibility vs Temperature
-    plt.subplot(2, 3, 4)
-    plt.plot(temperatures, susceptibilities, '^-', color='purple')
-    plt.xlabel('Temperature (T)')
-    plt.ylabel('Magnetic Susceptibility χ')
-    plt.title('Magnetic Susceptibility vs Temperature')
-    plt.grid(True)
+def plot_results(results, lattice_sizes, temperatures_to_plot=None):
+    """
+    Plot the simulation results for specified lattice sizes.
 
-    # Plot Specific Heat vs Temperature
-    plt.subplot(2, 3, 5)
-    plt.plot(temperatures, specific_heats, 'v-', color='orange')
-    plt.xlabel('Temperature (T)')
-    plt.ylabel('Specific Heat C')
-    plt.title('Specific Heat vs Temperature')
-    plt.grid(True)
+    Parameters:
+    - results (dict): Nested dictionary containing simulation results.
+    - lattice_sizes (list of int): List of lattice sizes to plot.
+    - temperatures_to_plot (list of float, optional): Specific temperatures to highlight in the plots.
+    """
+    for L in lattice_sizes:
+        plt.figure(figsize=(18, 10))
+        plt.suptitle(f"Simulation Results for Lattice Size L={L}", fontsize=16)
 
-    plt.tight_layout()
-    plt.show()
+        temperatures = sorted(results[L].keys())
+        magnetizations = [results[L][T]['Magnetization'] for T in temperatures]
+        energies = [results[L][T]['Energy'] for T in temperatures]
+        binder_cumulants = [results[L][T]['Binder Cumulant'] for T in temperatures]
+        susceptibilities = [results[L][T]['Magnetic Susceptibility'] for T in temperatures]
+        specific_heats = [results[L][T]['Specific Heat'] for T in temperatures]
+
+        # Plot Magnetization vs Temperature
+        plt.subplot(2, 3, 1)
+        plt.plot(temperatures, magnetizations, 'o-', color='blue')
+        plt.xlabel('Temperature (T)')
+        plt.ylabel('Average Magnetization ⟨m⟩')
+        plt.title(f'Magnetization vs Temperature for L={L}')
+        plt.grid(True)
+
+        # Plot Energy vs Temperature
+        plt.subplot(2, 3, 2)
+        plt.plot(temperatures, energies, 's-', color='red')
+        plt.xlabel('Temperature (T)')
+        plt.ylabel('Average Energy ⟨E⟩')
+        plt.title(f'Energy vs Temperature for L={L}')
+        plt.grid(True)
+
+        # Plot Binder Cumulant vs Temperature
+        plt.subplot(2, 3, 3)
+        plt.plot(temperatures, binder_cumulants, 'd-', color='green')
+        plt.xlabel('Temperature (T)')
+        plt.ylabel('Binder Cumulant U')
+        plt.title(f'Binder Cumulant vs Temperature for L={L}')
+        plt.grid(True)
+
+        # Plot Magnetic Susceptibility vs Temperature
+        plt.subplot(2, 3, 4)
+        plt.plot(temperatures, susceptibilities, '^-', color='purple')
+        plt.xlabel('Temperature (T)')
+        plt.ylabel('Magnetic Susceptibility χ')
+        plt.title(f'Magnetic Susceptibility vs Temperature for L={L}')
+        plt.grid(True)
+
+        # Plot Specific Heat vs Temperature
+        plt.subplot(2, 3, 5)
+        plt.plot(temperatures, specific_heats, 'v-', color='orange')
+        plt.xlabel('Temperature (T)')
+        plt.ylabel('Specific Heat C')
+        plt.title(f'Specific Heat vs Temperature for L={L}')
+        plt.grid(True)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.show()
 
 def main():
     # Simulation parameters
-    L = 16                  # Lattice size (16x16)
-    seed = 45646            # Random seed for reproducibility
-    steps = 1000            # Number of simulation steps per temperature
+    lattice_sizes = [16, 32, 64]          # List of lattice sizes to simulate
+    seed = 45646                          # Random seed for reproducibility
+    steps = 1000                          # Number of simulation steps per temperature
     temperatures = np.linspace(1.0, 4.0, 30)  # Temperature range from 1.0 to 4.0 with 30 points
-    output_dir = "simulation_data"            # Main directory to store simulation data
+    output_dir = "simulation_data"        # Main directory to store simulation data
 
     # Run simulations
-    results = simulate_ising(L, seed, steps, temperatures, output_dir=output_dir)
+    results = simulate_ising(lattice_sizes, seed, steps, temperatures, output_dir=output_dir)
 
-    # Plot the results
-    plot_results(results)
+    # Plot the results for each lattice size
+    plot_results(results, lattice_sizes)
 
 if __name__ == "__main__":
     main()

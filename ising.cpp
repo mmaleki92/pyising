@@ -11,6 +11,36 @@
 #define DOWN  3
 
 
+#include <vector>
+#include <omp.h>
+
+std::vector<Results> run_parallel_metropolis(
+    const std::vector<double>& temps, 
+    int L, 
+    int N_steps, 
+    unsigned int seed_base, 
+    bool use_wolff = false
+) {
+    std::vector<Results> results(temps.size());
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < temps.size(); ++i) {
+        unsigned int seed = seed_base + i;
+        Ising2D model(L, seed);
+        model.initialize_spins();
+        model.compute_neighbors();
+
+        if (use_wolff) {
+            model.do_step_wolff(temps[i], N_steps);
+        } else {
+            model.do_step_metropolis(temps[i], N_steps);
+        }
+
+        results[i] = model.get_results();
+    }
+
+    return results;
+}
 // NEW addition: single-step method for Metropolis
 void Ising2D::do_metropolis_step(double tstar)
 {

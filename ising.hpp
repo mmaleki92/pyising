@@ -3,6 +3,12 @@
 #include <vector>
 #include <random>
 
+struct Results {
+    double binder;
+    double meanMag;
+    double meanEne;
+};
+
 class Ising2D
 {
 public:
@@ -34,7 +40,9 @@ public:
 
     // Number of spins in one lattice dimension
     int get_L() const { return m_L; }
-
+    Results get_results() const {
+        return {m_binder, m_meanMag, m_meanEne};
+    };
 private:
     // Internal methods
     void metropolis_flip_spin();
@@ -44,6 +52,7 @@ private:
     void thermalize_wolff(double tstar);
     int m_L;
     int m_SIZE;
+
     std::mt19937 m_gen;
     std::uniform_int_distribution<int> m_ran_pos; 
     std::uniform_real_distribution<double> m_ran_u;
