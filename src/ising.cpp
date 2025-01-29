@@ -26,7 +26,11 @@ std::vector<Results> Ising2D::run_parallel_metropolis(
 
     // Create directory for current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
-    std::filesystem::create_directories(L_dir);
+    #pragma omp critical
+    {
+        std::filesystem::create_directories(L_dir);
+    }
+    
 
     // Parallel loop over temperatures
     #pragma omp parallel for
@@ -65,9 +69,12 @@ std::vector<Results> Ising2D::run_parallel_metropolis(
         std::string T_str = ss.str();
 
         // Create temperature directory
-        std::string T_dir = L_dir + "/T_" + T_str;
-        std::filesystem::create_directories(T_dir);
-
+        std::string T_dir;
+        #pragma omp critical
+        {
+            T_dir = L_dir + "/T_" + T_str;
+            std::filesystem::create_directories(T_dir);
+        }
 
         // We can save configurations depending on user preference:
         //  - If save_all_configs == true, save all measured configurations
@@ -87,7 +94,11 @@ std::vector<Results> Ising2D::run_parallel_metropolis(
                 }
 
                 // Save all configurations in NPY format
+            #pragma omp critical
+            {
                 cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
+            }
+
             }
         } else {
             // Save only the final configuration
