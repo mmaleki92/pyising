@@ -3,7 +3,11 @@
 #include <cmath>
 #include <cstdlib>
 #include <vector>
-
+#include <filesystem>
+#include <sstream>
+#include <iomanip>
+#include "cnpy/cnpy.h"
+#include <omp.h>
 
 #define UP    0
 #define RIGHT 1
@@ -11,17 +15,19 @@
 #define DOWN  3
 
 
-#include <vector>
-#include <omp.h>
-
 std::vector<Results> run_parallel_metropolis(
-    const std::vector<double>& temps, 
-    int L, 
-    int N_steps, 
-    unsigned int seed_base, 
+    const std::vector<double>& temps,
+    int L,
+    int N_steps,
+    unsigned int seed_base,
+    const std::string& output_dir,  // New output directory parameter
     bool use_wolff = false
 ) {
     std::vector<Results> results(temps.size());
+
+    // Create directory for current L
+    std::string L_dir = output_dir + "/L_" + std::to_string(L);
+    std::filesystem::create_directories(L_dir);
 
     #pragma omp parallel for
     for (size_t i = 0; i < temps.size(); ++i) {
@@ -37,6 +43,21 @@ std::vector<Results> run_parallel_metropolis(
         }
 
         results[i] = model.get_results();
+
+        // Format temperature to string with fixed precision
+        double T = temps[i];
+        std::stringstream ss;
+        ss << std::fixed << std::setprecision(3) << T;
+        std::string T_str = ss.str();
+
+        // Create temperature directory
+        std::string T_dir = L_dir + "/T_" + T_str;
+        std::filesystem::create_directories(T_dir);
+
+        // Save configuration as NPY file
+        std::string filename = T_dir + "/config.npy";
+        const std::vector<int>& config = results[i].configuration;
+        cnpy::npy_save(filename, config.data(), {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
     }
 
     return results;
@@ -72,7 +93,7 @@ std::vector<int> Ising2D::get_configuration() const
     std::vector<int> config(m_SIZE, 0);
     for (int i = 0; i < m_SIZE; i++)
     {
-        config[i] = spin_val(m_spins[i]); // +1 or -1
+        config[i] = spin_val(m_spins[i]);  // +1 or -1
     }
     return config;
 }
@@ -100,18 +121,16 @@ Ising2D::Ising2D(int L, unsigned int seed)
 void Ising2D::initialize_spins()
 {
     for (int i = 0; i < m_SIZE; i++) {
-        m_spins[i] = (m_brandom(m_gen) == 1); 
+        m_spins[i] = (m_brandom(m_gen) == 1);
     }
-    m_energy = compute_energy(); // Initialize energy correctly
+    m_energy = compute_energy();  // Initialize energy correctly
 }
 
 
 void Ising2D::compute_neighbors()
 {
-    for (int i = 0; i < m_L; i++)
-    {
-        for (int j = 0; j < m_L; j++)
-        {
+    for (int i = 0; i < m_L; i++) {
+        for (int j = 0; j < m_L; j++) {
             int idx = i + j*m_L;
             int u = (j+1 == m_L) ? 0 : j+1;
             int d = (j-1 < 0)    ? m_L-1 : j-1;
@@ -131,29 +150,27 @@ double Ising2D::compute_energy()
     int totalEnergy = 0;
     for (int i = 0; i < m_SIZE; i++) {
         int s_i = spin_val(m_spins[i]);
-        int sum_neigh = spin_val(m_spins[m_neighbors[i][UP]]) 
-                      + spin_val(m_spins[m_neighbors[i][DOWN]]) 
-                      + spin_val(m_spins[m_neighbors[i][RIGHT]]) 
+        int sum_neigh = spin_val(m_spins[m_neighbors[i][UP]])
+                      + spin_val(m_spins[m_neighbors[i][DOWN]])
+                      + spin_val(m_spins[m_neighbors[i][RIGHT]])
                       + spin_val(m_spins[m_neighbors[i][LEFT]]);
         totalEnergy += s_i * sum_neigh;
     }
-    return -totalEnergy / 2.0; // Correct energy calculation
+    return -totalEnergy / 2.0;  // Correct energy calculation
 }
 
 
 double Ising2D::magnetization() const
 {
     double sum = 0.0;
-    for (int i = 0; i < m_SIZE; i++)
-    {
+    for (int i = 0; i < m_SIZE; i++) {
         sum += spin_val(m_spins[i]);
     }
     return (sum / (double)m_SIZE);
 }
 
-void Ising2D::compute_metropolis_factors(double tstar)
-{
-    m_h.resize(5); // For deltaE values: -8, -4, 0, +4, +8
+void Ising2D::compute_metropolis_factors(double tstar) {
+    m_h.resize(5);  // For deltaE values: -8, -4, 0, +4, +8
     for (int deltaE : {-8, -4, 0, 4, 8}) {
         int idx = (deltaE + 8) / 4;
         if (deltaE <= 0) {
@@ -167,9 +184,9 @@ void Ising2D::compute_metropolis_factors(double tstar)
 void Ising2D::metropolis_flip_spin()
 {
     int index = m_ran_pos(m_gen);
-    int sum_neigh = spin_val(m_spins[m_neighbors[index][UP]]) 
-                  + spin_val(m_spins[m_neighbors[index][DOWN]]) 
-                  + spin_val(m_spins[m_neighbors[index][RIGHT]]) 
+    int sum_neigh = spin_val(m_spins[m_neighbors[index][UP]])
+                  + spin_val(m_spins[m_neighbors[index][DOWN]])
+                  + spin_val(m_spins[m_neighbors[index][RIGHT]])
                   + spin_val(m_spins[m_neighbors[index][LEFT]]);
     int currentSpin = spin_val(m_spins[index]);
     int deltaE = 2 * currentSpin * sum_neigh;
@@ -182,7 +199,7 @@ void Ising2D::metropolis_flip_spin()
 
     if (m_ran_u(m_gen) < m_h[idx]) {
         m_spins[index] = !m_spins[index];
-        m_energy += deltaE; // Update total energy correctly
+        m_energy += deltaE;  // Update total energy correctly
     }
 }
 
@@ -190,14 +207,12 @@ void Ising2D::thermalize_metropolis(double tstar)
 {
     // Example: 1100 steps was used in original code
     // This is arbitrary, you can adjust as needed
-    for (int i = 0; i < 1100; i++)
-    {
+    for (int i = 0; i < 1100; i++) {
         metropolis_flip_spin();
     }
 }
 
-void Ising2D::measure_observables(double N)
-{
+void Ising2D::measure_observables(double N) {
     double mag    = std::fabs(magnetization());
     double mag2   = mag * mag;
     double ene    = m_energy;
@@ -212,8 +227,7 @@ void Ising2D::measure_observables(double N)
     m_meanEne4 += (ene2 * ene2);
 }
 
-void Ising2D::do_step_metropolis(double tstar, int N)
-{
+void Ising2D::do_step_metropolis(double tstar, int N) {
     // Reset accumulators
     m_meanMag  = 0.0;
     m_meanMag2 = 0.0;
@@ -231,8 +245,7 @@ void Ising2D::do_step_metropolis(double tstar, int N)
 
     // Perform N iterations each followed by partial "equilibration"
     // (like original code: 1100 flips per measurement)
-    for (int i = 0; i < N; i++)
-    {
+    for (int i = 0; i < N; i++) {
         for (int j = 0; j < 1100; j++)
             metropolis_flip_spin();
 
@@ -253,23 +266,20 @@ void Ising2D::do_step_metropolis(double tstar, int N)
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
 
-void Ising2D::thermalize_wolff(double tstar)
-{
+void Ising2D::thermalize_wolff(double tstar) {
     // For example ~15 cluster updates, from original code
-    for (int i = 0; i < 15; i++)
-    {
+    for (int i = 0; i < 15; i++) {
         int pos = m_ran_pos(m_gen);
         double p = 1.0 - std::exp(-2.0 / tstar);
         wolff_add_to_cluster(pos, p);
     }
 }
 
-void Ising2D::wolff_add_to_cluster(int pos, double p)
-{
+void Ising2D::wolff_add_to_cluster(int pos, double p) {
     // Calculate local energy contribution first
-    int sum_neigh = spin_val(m_spins[m_neighbors[pos][UP]]) 
-                  + spin_val(m_spins[m_neighbors[pos][DOWN]]) 
-                  + spin_val(m_spins[m_neighbors[pos][RIGHT]]) 
+    int sum_neigh = spin_val(m_spins[m_neighbors[pos][UP]])
+                  + spin_val(m_spins[m_neighbors[pos][DOWN]])
+                  + spin_val(m_spins[m_neighbors[pos][RIGHT]])
                   + spin_val(m_spins[m_neighbors[pos][LEFT]]);
 
     // if spin=+1 => deltaE = 2*sum_neigh -4
@@ -289,22 +299,18 @@ void Ising2D::wolff_add_to_cluster(int pos, double p)
     int oldSpinVal = -newSpinVal; 
 
     // For each neighbor, if oldSpinVal is found => possibly add to cluster
-    for (int i = 0; i < 4; i++)
-    {
+    for (int i = 0; i < 4; i++) {
         int npos = m_neighbors[pos][i];
-        if (spin_val(m_spins[npos]) == oldSpinVal)
-        {
+        if (spin_val(m_spins[npos]) == oldSpinVal) {
             // Probability p
-            if (m_ran_u(m_gen) < p)
-            {
+            if (m_ran_u(m_gen) < p) {
                 wolff_add_to_cluster(npos, p);
             }
         }
     }
 }
 
-void Ising2D::do_step_wolff(double tstar, int N)
-{
+void Ising2D::do_step_wolff(double tstar, int N) {
     m_meanMag  = 0.0;
     m_meanMag2 = 0.0;
     m_meanMag4 = 0.0;
@@ -316,11 +322,9 @@ void Ising2D::do_step_wolff(double tstar, int N)
     // Thermalize with some cluster updates
     thermalize_wolff(tstar);
 
-    for (int i = 0; i < N; i++)
-    {
+    for (int i = 0; i < N; i++) {
         // Each iteration do ~12 cluster updates
-        for (int j = 0; j < 12; j++)
-        {
+        for (int j = 0; j < 12; j++) {
             int pos = m_ran_pos(m_gen);
             double pa = 1.0 - std::exp(-2.0 / tstar);
             wolff_add_to_cluster(pos, pa);

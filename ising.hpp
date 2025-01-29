@@ -7,6 +7,7 @@ struct Results {
     double binder;
     double meanMag;
     double meanEne;
+    std::vector<int> configuration; // Add configuration data
 };
 
 class Ising2D
@@ -41,8 +42,8 @@ public:
     // Number of spins in one lattice dimension
     int get_L() const { return m_L; }
     Results get_results() const {
-        return {m_binder, m_meanMag, m_meanEne};
-    };
+        return {m_binder, m_meanMag, m_meanEne, get_configuration()};
+    }    
 private:
     // Internal methods
     void metropolis_flip_spin();
