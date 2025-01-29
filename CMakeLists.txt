@@ -1,70 +1,43 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 project(Ising2DProject LANGUAGES CXX)
 
-# Set C++ standard
+# ======================== Pybind11 Setup (Submodule) ========================
+add_subdirectory(pybind11)  # Uses local submodule
+# Remove all find_package(pybind11) calls
+# No need for include_directories() - pybind11 handles this
+
+# ======================== Core Configuration ========================
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# Add this near the top after setting C++ standard
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # <-- Crucial for static libs used in shared modules
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Prevent in-source builds (optional best practice)
-if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
-    message(FATAL_ERROR "Please build in a separate directory.")
-endif()
-
-# Find pybind11 (either installed or via submodule)
-# find_package(pybind11 REQUIRED)
-# Manually include pybind11
-add_subdirectory(pybind11)
-include_directories(pybind11/include)  # Include pybind11 headers
-
-add_subdirectory(cnpy)
-option(BUILD_EXECUTABLE "Build the ising_demo executable" ON)
-install(TARGETS cnpy LIBRARY DESTINATION .)  # Key fix
-
-# Find OpenMP
+# ======================== Dependencies ========================
 find_package(OpenMP REQUIRED)
-if(OpenMP_CXX_FOUND)
-    message(STATUS "OpenMP found. Enabling OpenMP support.")
-else()
-    message(FATAL_ERROR "OpenMP not found. Please install OpenMP.")
-endif()
+add_subdirectory(cnpy)  # Assuming cnpy is also a submodule
 
-# Create a static library for the Ising2D implementation
+# ======================== Ising Library ========================
 add_library(ising STATIC
     src/ising.cpp
     src/ising.hpp
 )
-# Add explicit PIC flag for static library (redundant but safe)
-set_target_properties(ising PROPERTIES POSITION_INDEPENDENT_CODE ON)
-# Include directories
-target_include_directories(ising PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
+target_link_libraries(ising PUBLIC 
+    cnpy
+    OpenMP::OpenMP_CXX
 )
 
-# Link libraries: cnpy and OpenMP
-target_link_libraries(ising PUBLIC cnpy OpenMP::OpenMP_CXX)
+# ======================== Python Module ========================
+pybind11_add_module(_pyising src/bindings.cpp)  # Use pybind11's helper
+target_link_libraries(_pyising PRIVATE
+    ising
+    pybind11::module  # Link to pybind11's CMake target
+    OpenMP::OpenMP_CXX
+)
 
-# Build the Python module using pybind11
-# pybind11_add_module(_pyising src/bindings.cpp)
-add_library(_pyising MODULE src/bindings.cpp)
-target_link_libraries(_pyising PRIVATE pybind11::module ising OpenMP::OpenMP_CXX)
+# ======================== Installation ========================
+install(TARGETS _pyising
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}  # Use standard CMake variable
+)
 
-# Link OpenMP to the pybind11 module
-# target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
-
-set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")  # RPATH fix
-target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
-
-# If using an older GNU Compiler (pre-9.x), link stdc++fs for <filesystem> support
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
-    target_link_libraries(ising PRIVATE stdc++fs)
-    target_link_libraries(pyising PRIVATE stdc++fs)
-endif()
-
-install(
-    TARGETS _pyising
-    LIBRARY DESTINATION . )
-# Install targets
-install(TARGETS ising ARCHIVE DESTINATION lib)
+install(TARGETS ising
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
