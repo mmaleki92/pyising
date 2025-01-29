@@ -22,15 +22,15 @@ jobs:
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -U pip setuptools wheel scikit-build twine ninja
+        python -m pip install -U pip setuptools wheel build scikit-build twine ninja
 
-    - name: Build & install
-      run: |
+    #- name: Build & install
+     # run: |
         # Clean previous builds
-        rm -rf _skbuild *.egg-info
+        #rm -rf _skbuild *.egg-info
           
-        # Install with verbose output
-        python -m pip install . -vv
+        ## Install with verbose output
+        #python -m pip install . -vv
 
       env:
         CMAKE_GENERATOR: Ninja
