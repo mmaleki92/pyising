@@ -13,8 +13,10 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
 endif()
 
 # Find pybind11 (either installed or via submodule)
-find_package(pybind11 REQUIRED)
-
+# find_package(pybind11 REQUIRED)
+# Manually include pybind11
+add_subdirectory(pybind11)
+include_directories(pybind11/include)  # Include pybind11 headers
 add_subdirectory(cnpy)
 option(BUILD_EXECUTABLE "Build the ising_demo executable" ON)
 install(TARGETS cnpy LIBRARY DESTINATION .)  # Key fix
