@@ -10,8 +10,9 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/Ising2DProject",
-    packages=find_packages(),
-    cmake_install_dir="pyising",  # Ensure CMake installs the module correctly
+    packages=find_packages(where="."),
+    cmake_install_dir="pyising",
+    include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: C++",

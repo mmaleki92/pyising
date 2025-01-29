@@ -3,7 +3,7 @@
 #include "ising.hpp"
 namespace py = pybind11;
 
-PYBIND11_MODULE(pyising, m) {
+PYBIND11_MODULE(_pyising, m) {
     py::class_<Ising2D>(m, "Ising2D")
         .def(py::init<int, unsigned int>(), 
              py::arg("L"), 
@@ -14,11 +14,8 @@ PYBIND11_MODULE(pyising, m) {
         .def("magnetization", &Ising2D::magnetization)
         .def("do_step_metropolis", &Ising2D::do_step_metropolis)
         .def("do_step_wolff", &Ising2D::do_step_wolff)
-
-        // NEW additions: single-step calls
         .def("do_metropolis_step", &Ising2D::do_metropolis_step)
         .def("do_wolff_step", &Ising2D::do_wolff_step)
-
         .def("get_configuration", &Ising2D::get_configuration)
         .def("get_L", &Ising2D::get_L)
         .def("get_magnetization", &Ising2D::get_magnetization)

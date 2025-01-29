@@ -1,9 +1,9 @@
-from pyising import pyising
+import pyising
 import numpy as np
 
 temps = np.linspace(1, 4, 100)
 system = pyising.Ising2D(L=32)
-results = system.run_parallel_metropolis(temps, L=32, N_steps=10000,
+results = system.run_parallel_metropolis(temps, N_steps=10000,
                                                    seed_base=42, 
                                                    output_dir="simultion",
                                                     use_wolff=False, 

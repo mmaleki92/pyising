@@ -15,9 +15,9 @@ endif()
 # Find pybind11 (either installed or via submodule)
 find_package(pybind11 REQUIRED)
 
-# Add cnpy library (assuming it's in a subdirectory "cnpy")
 add_subdirectory(cnpy)
 option(BUILD_EXECUTABLE "Build the ising_demo executable" ON)
+install(TARGETS cnpy LIBRARY DESTINATION .)  # Key fix
 
 # Find OpenMP
 find_package(OpenMP REQUIRED)
@@ -41,17 +41,16 @@ target_include_directories(ising PUBLIC
 )
 
 # Link libraries: cnpy and OpenMP
-target_link_libraries(ising PRIVATE cnpy OpenMP::OpenMP_CXX)
+target_link_libraries(ising PUBLIC cnpy OpenMP::OpenMP_CXX)
 
 # Build the Python module using pybind11
-pybind11_add_module(pyising src/bindings.cpp)
+pybind11_add_module(_pyising src/bindings.cpp)
 
 # Link OpenMP to the pybind11 module
-target_link_libraries(pyising PRIVATE ising OpenMP::OpenMP_CXX)
+target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
 
-# Optional: build an executable for a demo or CLI
-# add_executable(ising_demo main.cpp)
-# target_link_libraries(ising_demo PRIVATE ising OpenMP::OpenMP_CXX)
+set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")  # RPATH fix
+target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
 
 # If using an older GNU Compiler (pre-9.x), link stdc++fs for <filesystem> support
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
@@ -59,14 +58,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_L
     target_link_libraries(pyising PRIVATE stdc++fs)
 endif()
 
-
+install(
+    TARGETS _pyising
+    LIBRARY DESTINATION . )
 # Install targets
 install(TARGETS ising ARCHIVE DESTINATION lib)
-install(TARGETS pyising LIBRARY DESTINATION pyising)
-
-# # Conditionally build executable
-# if(BUILD_EXECUTABLE)
-#     add_executable(ising_demo main.cpp)
-#     target_link_libraries(ising_demo PRIVATE ising OpenMP::OpenMP_CXX)
-#     install(TARGETS ising_demo RUNTIME DESTINATION bin)
-# endif()
