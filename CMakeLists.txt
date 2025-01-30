@@ -12,6 +12,9 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
     message(FATAL_ERROR "Please build in a separate directory.")
 endif()
 
+set(pybind11_DIR "${CMAKE_SOURCE_DIR}/pybind11")
+add_subdirectory(pybind11)
+
 # Find pybind11 (either installed or via submodule)
 find_package(pybind11 REQUIRED)
 
