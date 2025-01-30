@@ -24,13 +24,6 @@ struct Results {
     std::chrono::duration<double> runtime;       // Execution time
     std::vector<double> timing_per_step;         // Per-step timing
 
-    // Add system diagnostics
-    struct SystemInfo {
-        size_t memory_usage;
-        int num_threads_used;
-    } system_info;
-
-
 };
     std::vector<Results> run_parallel_metropolis(
         const std::vector<double>& temps, int L, int N_steps,

@@ -30,7 +30,11 @@ PYBIND11_MODULE(_pyising, m) {
         .def_readwrite("binder", &Results::binder)
         .def_readwrite("mean_mag", &Results::meanMag)
         .def_readwrite("mean_ene", &Results::meanEne)
-        .def_readwrite("configuration", &Results::configuration);
+        .def_readwrite("configuration", &Results::configuration)
+        .def_readwrite("T", &Results::T)
+        .def_readwrite("L", &Results::L)
+        .def_readwrite("metadata", &Results::metadata)
+        .def_readwrite("timing_per_step", &Results::timing_per_step);
 
     m.def("run_parallel_metropolis", &run_parallel_metropolis,
             "Run the parallel Metropolis simulation",
