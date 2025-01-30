@@ -28,7 +28,9 @@ jobs:
       run: rm -rf dist build *.egg-info _skbuild
 
     - name: Build package with cibuildwheel
-      run: python -m cibuildwheel --output-dir dist
+      run: |
+        export CIBW_BUILD="cp38-* cp39-* cp310-* cp311-* cp312-*"
+        python -m cibuildwheel --output-dir dist
 
     - name: Check distribution
       run: twine check dist/*
