@@ -1,9 +1,28 @@
 # PyIsing
 
-A CPP + Python ising simulator.
+PyIsing is a Python library for simulating the Ising model using C++ bindings via pybind11. It includes implementations of the Wolff and Metropolis Monte Carlo algorithms for efficient simulation of spin systems.
 
+## Features
+- Fast C++ core: Uses pybind11 to leverage high-performance C++ computations.
+- Wolff Algorithm: Implements cluster updates for efficient decorrelation.
+- Metropolis Algorithm: Standard single-spin update method.
+- Flexible Parameters: Supports different lattice sizes, temperatures.
 
 ## installation
 ```bash
 pip install pyising
+```
+
+## usage
+```pytohn
+import pyising
+
+temps = np.linspace(1, 4, 50)
+
+L = 64
+results = pyising.run_parallel_metropolis(temps, L, N_steps=100000,
+                                                   seed_base=42,
+                                                   output_dir="simultion",
+                                                    use_wolff=False, 
+                                                    save_all_configs=False)
 ```
