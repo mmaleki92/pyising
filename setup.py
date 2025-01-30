@@ -3,7 +3,7 @@ from setuptools import find_packages
 
 setup(
     name="pyising",
-    version="0.1.0",
+    version="0.1.2",
     author="Morteza Maleki",
     author_email="maleki.morteza92@gmail.com",
     description="Python bindings for the Ising2D C++ simulation",
