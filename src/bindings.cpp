@@ -25,11 +25,13 @@ PYBIND11_MODULE(_pyising, m) {
         .def("get_energy2", &Ising2D::get_energy2)
         .def("get_energy4", &Ising2D::get_energy4)
         .def("get_binder_cumulant", &Ising2D::get_binder_cumulant);
-       
+
     py::class_<Results>(m, "Results")
         .def_readwrite("binder", &Results::binder)
         .def_readwrite("mean_mag", &Results::meanMag)
+        .def_readwrite("mean_mag2", &Results::meanMag2)
         .def_readwrite("mean_ene", &Results::meanEne)
+        .def_readwrite("mean_ene2", &Results::meanEne2)
         .def_readwrite("configuration", &Results::configuration)
         .def_readwrite("T", &Results::T)
         .def_readwrite("L", &Results::L)
