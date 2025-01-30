@@ -35,7 +35,7 @@ std::vector<Results> run_parallel_metropolis(
         std::filesystem::create_directories(L_dir);
     }
 
-    // Create a ProgressBar object
+    // Configure the progress bar
     indicators::ProgressBar bar{
         indicators::option::BarWidth{50},
         indicators::option::Start{"["},
@@ -45,28 +45,23 @@ std::vector<Results> run_parallel_metropolis(
         indicators::option::End{"]"},
         indicators::option::PostfixText{"Running simulations..."},
         indicators::option::ForegroundColor{indicators::Color::green},
-        indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
+        indicators::option::FontStyles{
+            std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
         indicators::option::ShowElapsedTime{true},
         indicators::option::ShowRemainingTime{true},
-        indicators::option::MaxProgress{temps.size()}
+        indicators::option::MaxProgress{temps.size()},
+        // Hide the bar from the console once it's marked as completed
+        indicators::option::HideBarWhenComplete{true}
     };
 
-    // Shared counter to track progress
+    // Shared counter for progress
     std::atomic<size_t> progress_counter{0};
 
-    // Parallel loop over temperatures
+    // Parallel loop
     #pragma omp parallel for
     for (size_t i = 0; i < temps.size(); ++i) {
-        // Get thread information
         int thread_id = omp_get_thread_num();
         int total_threads = omp_get_num_threads();
-
-        // Print thread information (ensure thread-safe output)
-        #pragma omp critical
-        {
-            std::cout << "[Thread " << thread_id << " of " << total_threads << "] "
-                      << "Starting simulation for T = " << temps[i] << " (Index " << i << ")\n";
-        }
 
         unsigned int seed = seed_base + static_cast<unsigned int>(i);
         Ising2D model(L, seed);
@@ -77,6 +72,7 @@ std::vector<Results> run_parallel_metropolis(
             model.enable_save_all_configs(true);
         }
 
+        // Decide Metropolis vs Wolff
         if (use_wolff) {
             model.do_step_wolff(temps[i], N_steps);
         } else {
@@ -84,27 +80,22 @@ std::vector<Results> run_parallel_metropolis(
         }
 
         results[i] = model.get_results();
-        double T = temps[i];
-
-        // Assign temperature and lattice size
         results[i].T = temps[i];
         results[i].L = L;
 
         std::stringstream ss;
-        ss << std::fixed << std::setprecision(3) << T;
+        ss << std::fixed << std::setprecision(3) << temps[i];
         std::string T_str = ss.str();
-
-        // Create temperature directory
         std::string T_dir;
+
+        // Create a subdirectory for each temperature
         #pragma omp critical
         {
             T_dir = L_dir + "/T_" + T_str;
             std::filesystem::create_directories(T_dir);
         }
 
-        // We can save configurations depending on user preference:
-        //  - If save_all_configs == true, save all measured configurations
-        //  - Otherwise, just save the final configuration
+        // Save configurations
         if (save_all_configs) {
             std::string all_filename = T_dir + "/all_configs.npy";
             const auto& all_configs = results[i].all_configurations;
@@ -112,14 +103,11 @@ std::vector<Results> run_parallel_metropolis(
                 size_t num_steps = all_configs.size();
                 size_t L_size = static_cast<size_t>(L);
 
-                // Flatten the list of configurations into a single 1D array for npy_save
                 std::vector<int> flattened;
                 flattened.reserve(num_steps * L_size * L_size);
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-
-                // Save all configurations in NPY format
                 #pragma omp critical
                 {
                     cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
@@ -129,17 +117,10 @@ std::vector<Results> run_parallel_metropolis(
             // Save only the final configuration
             std::string filename = T_dir + "/config.npy";
             const std::vector<int>& config = results[i].configuration;
-            cnpy::npy_save(filename, config.data(),
-                           {static_cast<unsigned long>(L), static_cast<unsigned long>(L)}, "w");
+            cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
-        // Verbose: print out the computed observables
-        #pragma omp critical
-        {
-            std::cout << "[Thread " << thread_id << "] Completed simulation for T = " << temps[i]
-                      << ", Binder = " << results[i].binder
-                      << ", Mean Magnetization = " << results[i].meanMag << "\n";
-        }
+ 
 
         // Update the progress bar
         size_t current_count = ++progress_counter;
@@ -149,18 +130,17 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
-    // When the loop is done, mark progress as complete
+    // Mark the bar as complete when done
     bar.mark_as_completed();
-    std::cout << "\nAll simulations completed!\n";
 
-    return results;  // Return the results for any subsequent analysis
+    // Print a final message
+    std::cout << "All simulations completed successfully!\n";
+
+    return results;
 }
-
 void Ising2D::do_metropolis_step(double tstar)
 {
-    // If you want to avoid re-calculating these factors every step, 
-    // you could store tstar in a member variable and only recompute 
-    // if tstar changes significantly. For simplicity, we recompute below:
+
     compute_metropolis_factors(tstar);
 
     // Perform exactly one spin-flip attempt
