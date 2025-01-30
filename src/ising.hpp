@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <random>
+#include <chrono>
+#include <map>
 
 struct Results {
     // Existing members
@@ -12,9 +14,23 @@ struct Results {
     double meanEne;
     double meanEne2;
     double meanEne4;
+    double T;
+    int L;
+
     std::vector<int> configuration;
-    // New member to hold all configurations
     std::vector<std::vector<int>> all_configurations;
+
+    std::map<std::string, std::string> metadata;  // Store parameters, versions, etc
+    std::chrono::duration<double> runtime;       // Execution time
+    std::vector<double> timing_per_step;         // Per-step timing
+
+    // Add system diagnostics
+    struct SystemInfo {
+        size_t memory_usage;
+        int num_threads_used;
+    } system_info;
+
+
 };
     std::vector<Results> run_parallel_metropolis(
         const std::vector<double>& temps, int L, int N_steps,

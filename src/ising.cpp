@@ -64,6 +64,11 @@ std::vector<Results> run_parallel_metropolis(
         results[i] = model.get_results();
 
         double T = temps[i];
+
+        // Assign temperature and lattice size
+        results[i].T = temps[i];
+        results[i].L = L;
+
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << T;
         std::string T_str = ss.str();
