@@ -51,7 +51,6 @@ std::vector<Results> run_parallel_metropolis(
         indicators::option::ShowRemainingTime{true},
         indicators::option::MaxProgress{temps.size()},
         // Hide the bar from the console once it's marked as completed
-        indicators::option::HideBarWhenComplete{true}
     };
 
     // Shared counter for progress
@@ -120,7 +119,6 @@ std::vector<Results> run_parallel_metropolis(
             cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
- 
 
         // Update the progress bar
         size_t current_count = ++progress_counter;
@@ -131,10 +129,10 @@ std::vector<Results> run_parallel_metropolis(
     }
 
     // Mark the bar as complete when done
-    bar.mark_as_completed();
+    // bar.mark_as_completed();
 
     // Print a final message
-    std::cout << "All simulations completed successfully!\n";
+    // std::cout << "All simulations completed successfully!\n";
 
     return results;
 }
