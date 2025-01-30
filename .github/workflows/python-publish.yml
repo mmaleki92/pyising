@@ -30,7 +30,7 @@ jobs:
 
     - name: Build package
       run: |
-        python setup.py install
+        python setup.py sdist bdist_wheel
 
     - name: Check distribution
       run: twine check dist/*
