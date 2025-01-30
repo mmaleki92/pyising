@@ -28,3 +28,8 @@ results = pyising.run_parallel_metropolis(temps, L, N_steps=100000,
                                                     use_wolff=False, 
                                                     save_all_configs=False)
 ```
+
+
+# Cite
+I build the code based on the following code, added the python binding and made it modular after refining the structure.
+https://github.com/VictorSeven/IsingModel
