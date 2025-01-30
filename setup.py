@@ -1,4 +1,4 @@
-from skbuild import setup
+from skbuild import setup  # Use scikit-build
 from setuptools import find_packages
 
 setup(
@@ -15,12 +15,12 @@ setup(
     include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: C++",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.6',
-    install_requires=["numpy>=1.22.0"],  # pybind11 is already in-tree
-    cmake_args=[
-        "-DCMAKE_VERBOSE_MAKEFILE=ON",  # Optional for debugging
+    install_requires=[
+        "pybind11>=2.5.0",
     ],
 )
