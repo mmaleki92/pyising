@@ -8,6 +8,9 @@
 #include <iomanip>
 #include "cnpy/cnpy.h"
 #include <omp.h>
+#include <indicators/progress_bar.hpp>
+#include <indicators/termcolor.hpp>
+
 
 #define UP    0
 #define RIGHT 1
@@ -31,6 +34,25 @@ std::vector<Results> run_parallel_metropolis(
     {
         std::filesystem::create_directories(L_dir);
     }
+
+    // Create a ProgressBar object
+    indicators::ProgressBar bar{
+        indicators::option::BarWidth{50},
+        indicators::option::Start{"["},
+        indicators::option::Fill{"="},
+        indicators::option::Lead{">"},
+        indicators::option::Remainder{" "},
+        indicators::option::End{"]"},
+        indicators::option::PostfixText{"Running simulations..."},
+        indicators::option::ForegroundColor{indicators::Color::green},
+        indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
+        indicators::option::ShowElapsedTime{true},
+        indicators::option::ShowRemainingTime{true},
+        indicators::option::MaxProgress{temps.size()}
+    };
+
+    // Shared counter to track progress
+    std::atomic<size_t> progress_counter{0};
 
     // Parallel loop over temperatures
     #pragma omp parallel for
@@ -62,7 +84,6 @@ std::vector<Results> run_parallel_metropolis(
         }
 
         results[i] = model.get_results();
-
         double T = temps[i];
 
         // Assign temperature and lattice size
@@ -99,11 +120,10 @@ std::vector<Results> run_parallel_metropolis(
                 }
 
                 // Save all configurations in NPY format
-            #pragma omp critical
-            {
-                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
-            }
-
+                #pragma omp critical
+                {
+                    cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
+                }
             }
         } else {
             // Save only the final configuration
@@ -114,10 +134,24 @@ std::vector<Results> run_parallel_metropolis(
         }
 
         // Verbose: print out the computed observables
-        std::cout << "[Thread " << thread_id << "] Completed simulation for T = " << temps[i]
-                  << ", Binder = " << results[i].binder
-                  << ", Mean Magnetization = " << results[i].meanMag << "\n";
+        #pragma omp critical
+        {
+            std::cout << "[Thread " << thread_id << "] Completed simulation for T = " << temps[i]
+                      << ", Binder = " << results[i].binder
+                      << ", Mean Magnetization = " << results[i].meanMag << "\n";
+        }
+
+        // Update the progress bar
+        size_t current_count = ++progress_counter;
+        #pragma omp critical
+        {
+            bar.set_progress(current_count);
+        }
     }
+
+    // When the loop is done, mark progress as complete
+    bar.mark_as_completed();
+    std::cout << "\nAll simulations completed!\n";
 
     return results;  // Return the results for any subsequent analysis
 }
