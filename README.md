@@ -14,7 +14,7 @@ pip install pyising
 ```
 
 ## usage
-```pytohn
+```python
 import pyising
 
 temps = np.linspace(1, 4, 50)
