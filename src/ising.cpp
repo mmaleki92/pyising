@@ -125,22 +125,28 @@ std::vector<Results> run_parallel_metropolis(
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-                cnpy::npy_save(
-                    all_filename,
-                    flattened.data(),
-                    {all_configs.size(), static_cast<size_t>(L), static_cast<size_t>(L)},
-                    "w"
-                );
+                #pragma omp critical
+                {
+                    cnpy::npy_save(
+                        all_filename,
+                        flattened.data(),
+                        {all_configs.size(), static_cast<size_t>(L), static_cast<size_t>(L)},
+                        "w"
+                    );
+                }
             }
         } else {
             std::string filename = T_dir + "/config.npy";
             const auto& config = local_results[i].configuration;
+            #pragma omp critical
+            { 
             cnpy::npy_save(
                 filename,
                 config.data(),
                 {static_cast<size_t>(L), static_cast<size_t>(L)},
                 "w"
             );
+        }
         }
 
         // Once this temperature is done, increment the global counter
