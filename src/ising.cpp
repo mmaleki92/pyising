@@ -296,36 +296,39 @@ void Ising2D::do_step_metropolis(double tstar, int N) {
 }
 
 void Ising2D::thermalize_wolff(double tstar) {
-    // For example ~15 cluster updates, from original code
-    for (int i = 0; i < 15; i++) {
-        int pos = m_ran_pos(m_gen);
-        double p = 1.0 - std::exp(-2.0 / tstar);
-        wolff_cluster_update(p);
+    // Thermalize for ~5 full lattice sweeps
+    for (int i = 0; i < 5 * m_SIZE; ++i) {
+        wolff_cluster_update(1.0 - std::exp(-2.0 / tstar));
     }
 }
 
 void Ising2D::wolff_cluster_update(double p) {
     std::stack<int> stack;
     std::vector<bool> in_cluster(m_SIZE, false);
+    int delta_energy = 0;  // Track energy change from flipped bonds
 
     const int start = m_ran_pos(m_gen);
     const char target_spin = m_spins[start];
-    int cluster_size = 0;
-
+    
     stack.push(start);
     in_cluster[start] = true;
 
     while (!stack.empty()) {
         const int current = stack.top();
         stack.pop();
-        m_spins[current] = -target_spin;
-        cluster_size++;
+        m_spins[current] = -target_spin;  // Flip the spin
 
-        const int* neighbors = &m_neighbors[4*current];
+        // Process neighbors
+        const int* neighbors = &m_neighbors[4 * current];
         for (int i = 0; i < 4; ++i) {
             const int nidx = neighbors[i];
-            if (!in_cluster[nidx] && m_spins[nidx] == target_spin) {
-                if (m_ran_u(m_gen) < p) {
+            if (!in_cluster[nidx]) {
+                // Check if neighbor has the original spin (contributes to energy change)
+                if (m_spins[nidx] == target_spin) {
+                    delta_energy += 1;  // Each aligned bond adds +1 to energy
+                }
+                // Add to cluster with probability p if spin matches
+                if (m_spins[nidx] == target_spin && m_ran_u(m_gen) < p) {
                     stack.push(nidx);
                     in_cluster[nidx] = true;
                 }
@@ -333,16 +336,14 @@ void Ising2D::wolff_cluster_update(double p) {
         }
     }
 
-    // Update energy (ΔE = 2 * cluster_size * (4 - 2*4)/m_SIZE)
-    m_energy += (8.0 * cluster_size) / m_SIZE;
+    m_energy += delta_energy;  // Correctly update energy
 }
 void Ising2D::do_step_wolff(double tstar, int N) {
-    const double p = 1.0 - exp(-2.0/tstar);
-    
-    // Thermalization
-    for(int i = 0; i < 15; ++i) {
-        wolff_cluster_update(p);
-    }
+    const double p = 1.0 - std::exp(-2.0 / tstar);
+
+    // Thermalize with periodic energy recalibration
+    thermalize_wolff(tstar);
+    m_energy = compute_energy();  // Ensure accurate starting energy
 
     // Measurement
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
@@ -353,17 +354,27 @@ void Ising2D::do_step_wolff(double tstar, int N) {
             wolff_cluster_update(p);
         }
 
-        const double mag = fabs(magnetization());
+        // Recompute energy periodically to prevent drift
+        if (i % 100 == 0) {
+            m_energy = compute_energy();
+        }
+
+        const double mag = std::fabs(magnetization());
         const double ene = m_energy;
 
         mag_sum += mag;
-        mag2_sum += mag*mag;
-        mag4_sum += mag*mag*mag*mag;
+        mag2_sum += mag * mag;
+        mag4_sum += mag * mag * mag * mag;
         ene_sum += ene;
-        ene2_sum += ene*ene;
-        ene4_sum += ene*ene*ene*ene;
+        ene2_sum += ene * ene;
+        ene4_sum += ene * ene * ene * ene;
+
+        if (m_save_all_configs) {
+            m_all_configs.push_back(get_configuration());
+        }
     }
 
+    // Normalize results
     m_meanMag = mag_sum / N;
     m_meanMag2 = mag2_sum / N;
     m_meanMag4 = mag4_sum / N;
@@ -372,7 +383,6 @@ void Ising2D::do_step_wolff(double tstar, int N) {
     m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
-
 void Ising2D::enable_save_all_configs(bool enable) {
     m_save_all_configs = enable;
 }
