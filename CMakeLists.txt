@@ -38,17 +38,20 @@ set_target_properties(ising PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(ising PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/externals/pcg/include> # Add PCG include
 )
 
-# Link libraries: cnpy, OpenMP, and now indicators
+# Optimization flags
+target_compile_options(ising PRIVATE -O3 -march=native -fopenmp)
 target_link_libraries(ising PUBLIC
     cnpy
-    indicators        # Link the indicators library
+    indicators
     OpenMP::OpenMP_CXX
 )
 
 # Build the Python module using pybind11
 pybind11_add_module(_pyising src/bindings.cpp)
+target_compile_options(_pyising PRIVATE -O3 -march=native -fopenmp)
 target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
 set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")
 
@@ -61,4 +64,4 @@ endif()
 # Install rules
 install(TARGETS cnpy LIBRARY DESTINATION .)
 install(TARGETS _pyising LIBRARY DESTINATION .)
-install(TARGETS ising ARCHIVE DESTINATION lib)
+install(TARGETS ising ARCHIVE DESTINATION lib) 
