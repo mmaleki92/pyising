@@ -20,8 +20,7 @@
 
 std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps,
-    int L,
-    int N_steps,
+    int L, int N_steps,
     unsigned int seed_base,
     const std::string& output_dir,
     bool use_wolff,
@@ -31,21 +30,23 @@ std::vector<Results> run_parallel_metropolis(
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Split temperatures across MPI processes
-    int num_temps = temps.size();
-    int local_num = num_temps / size;
+    // Distribute temperatures among ranks
+    int num_temps = static_cast<int>(temps.size());
+    int base_local_num = num_temps / size;
     int remainder = num_temps % size;
-    int start = rank * local_num + std::min(rank, remainder);
-    int end = start + local_num + (rank < remainder ? 1 : 0);
+    int start = rank * base_local_num + std::min(rank, remainder);
+    int local_num = base_local_num + (rank < remainder ? 1 : 0);
+    int end = start + local_num;
     std::vector<double> local_temps(temps.begin() + start, temps.begin() + end);
 
+    // Prepare local results
     std::vector<Results> local_results(local_temps.size());
 
-    // Create directory for current L
+    // Create output directory
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
     std::filesystem::create_directories(L_dir);
 
-    // Setup MPI window for global progress counter
+    // Create an MPI window for global progress
     MPI_Win win;
     int* global_counter = nullptr;
     if (rank == 0) {
@@ -56,7 +57,7 @@ std::vector<Results> run_parallel_metropolis(
         MPI_Win_create(nullptr, 0, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     }
 
-    // Configure progress bar on rank 0
+    // Setup progress bar on rank 0
     indicators::ProgressBar bar;
     if (rank == 0) {
         bar.set_option(indicators::option::BarWidth{50});
@@ -66,47 +67,51 @@ std::vector<Results> run_parallel_metropolis(
         bar.set_option(indicators::option::Remainder{" "});
         bar.set_option(indicators::option::End{"]"});
         bar.set_option(indicators::option::PostfixText{"Running simulations..."});
-        bar.set_option(indicators::option::ForegroundColor{indicators::Color::green});
-        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}});
+        bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
+        bar.set_option(indicators::option::FontStyles{
+            std::vector<indicators::FontStyle>{indicators::FontStyle::bold}
+        });
         bar.set_option(indicators::option::ShowElapsedTime{true});
         bar.set_option(indicators::option::ShowRemainingTime{true});
-        bar.set_option(indicators::option::MaxProgress{num_temps});
+
+        // We want the bar to go from 0 to num_temps (i.e., one increment per temperature).
+        bar.set_option(indicators::option::MaxProgress{static_cast<size_t>(num_temps)});
     }
 
-    // Parallel loop
     #pragma omp parallel for
     for (size_t i = 0; i < local_temps.size(); ++i) {
-        // Process temperature (existing code)
-        int thread_id = omp_get_thread_num();
+        // Generate a seed based on rank, thread, and index
         unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
+
+        // Initialize Ising model
         Ising2D model(L, seed);
         model.initialize_spins();
         model.compute_neighbors();
+        model.enable_save_all_configs(save_all_configs);
 
-        if (save_all_configs) {
-            model.enable_save_all_configs(true);
-        }
-
+        // Perform simulation
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps);
         } else {
-            model.do_step_metropolis_mpi(local_temps[i], N_steps);
+            model.do_step_metropolis(local_temps[i], N_steps);
         }
 
+        // Store results
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
         local_results[i].L = L;
 
-        // Save configurations (existing code)
+        // Save config data
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << local_temps[i];
         std::string T_str = ss.str();
         std::string T_dir;
-
-        #pragma omp critical
         {
-            T_dir = L_dir + "/T_" + T_str;
-            std::filesystem::create_directories(T_dir);
+            #pragma omp critical
+            {
+                T_dir = L_dir + "/T_" + T_str;
+                std::filesystem::create_directories(T_dir);
+            }
         }
 
         if (save_all_configs) {
@@ -114,13 +119,13 @@ std::vector<Results> run_parallel_metropolis(
             const auto& all_configs = local_results[i].all_configurations;
             if (!all_configs.empty()) {
                 size_t num_steps = all_configs.size();
-                size_t L_size = static_cast<size_t>(L);
                 std::vector<int> flattened;
-                flattened.reserve(num_steps * L_size * L_size);
+                flattened.reserve(num_steps * L * L);
+
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
+                cnpy::npy_save(all_filename, flattened.data(), {num_steps, static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
             }
         } else {
             std::string filename = T_dir + "/config.npy";
@@ -128,7 +133,7 @@ std::vector<Results> run_parallel_metropolis(
             cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
-        // Update global progress counter
+        // Done with this temperature -> increment global counter by 1
         #pragma omp critical
         {
             int one = 1;
@@ -137,10 +142,12 @@ std::vector<Results> run_parallel_metropolis(
             MPI_Win_unlock(0, win);
         }
 
-        // Update progress bar on rank 0
+        // Update progress bar if rank == 0
         if (rank == 0 && omp_get_thread_num() == 0) {
-            static int update_count = 0;
-            if (++update_count % 5 == 0) {
+            static const int update_interval = 1; // update every temperature
+            static int updates = 0;
+            ++updates;
+            if (updates % update_interval == 0) {
                 MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
                 int current_total = *global_counter;
                 MPI_Win_unlock(0, win);
@@ -149,7 +156,7 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
-    // Final update to ensure completion
+    // Final update to ensure bar is complete
     if (rank == 0) {
         MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
         bar.set_progress(*global_counter);
@@ -157,7 +164,7 @@ std::vector<Results> run_parallel_metropolis(
         bar.mark_as_completed();
     }
 
-    // Cleanup MPI window
+    // MPI cleanup
     MPI_Win_free(&win);
     if (rank == 0) {
         MPI_Free_mem(global_counter);
