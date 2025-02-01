@@ -1,3 +1,5 @@
+[![Upload Python Package](https://github.com/mmaleki92/pyising/actions/workflows/python-publish.yml/badge.svg)](https://github.com/mmaleki92/pyising/actions/workflows/python-publish.yml)
+
 # PyIsing
 
 PyIsing is a Python library for simulating the Ising model using C++ bindings via pybind11. It includes implementations of the Wolff and Metropolis Monte Carlo algorithms for efficient simulation of spin systems.
@@ -26,3 +28,8 @@ results = pyising.run_parallel_metropolis(temps, L, N_steps=100000,
                                                     use_wolff=False, 
                                                     save_all_configs=False)
 ```
+
+
+# Cite
+I build the code based on the following code, added the python binding and made it modular after refining the structure.
+https://github.com/VictorSeven/IsingModel
