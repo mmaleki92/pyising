@@ -90,7 +90,7 @@ std::vector<Results> run_parallel_metropolis(
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps);
         } else {
-            model.do_step_metropolis(local_temps[i], N_steps);
+            model.do_step_metropolis_mpi(local_temps[i], N_steps);
         }
 
         local_results[i] = model.get_results();
@@ -291,7 +291,7 @@ void Ising2D::measure_observables(double N) {
     }
 }
 
-void Ising2D::do_step_metropolis(double tstar, int N, MPI_Win win, int rank)
+void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
 {
     compute_metropolis_factors(tstar);
 
@@ -299,7 +299,6 @@ void Ising2D::do_step_metropolis(double tstar, int N, MPI_Win win, int rank)
     for (int i = 0; i < 1100; ++i) {
         metropolis_flip_spin(tstar);
     }
-
     // Measurement phase
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
@@ -339,6 +338,45 @@ void Ising2D::do_step_metropolis(double tstar, int N, MPI_Win win, int rank)
     m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
+
+void Ising2D::do_step_metropolis(double tstar, int N) {
+    compute_metropolis_factors(tstar);
+
+    // Thermalization (vectorized)
+    for (int i = 0; i < 1100; ++i) {
+        metropolis_flip_spin(tstar);
+    }
+
+    // Measurement phase
+    double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
+    double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < 1100; ++j) {
+            metropolis_flip_spin(tstar);
+        }
+
+        const double mag = fabs(magnetization());
+        const double ene = m_energy;
+
+        mag_sum += mag;
+        mag2_sum += mag*mag;
+        mag4_sum += mag*mag*mag*mag;
+        ene_sum += ene;
+        ene2_sum += ene*ene;
+        ene4_sum += ene*ene*ene*ene;
+    }
+
+    // Store results
+    m_meanMag = mag_sum / N;
+    m_meanMag2 = mag2_sum / N;
+    m_meanMag4 = mag4_sum / N;
+    m_meanEne = ene_sum / N;
+    m_meanEne2 = ene2_sum / N;
+    m_meanEne4 = ene4_sum / N;
+    m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
+}
+
 void Ising2D::thermalize_wolff(double tstar) {
     // Thermalize for ~5 full lattice sweeps
     for (int i = 0; i < 5 * m_SIZE; ++i) {

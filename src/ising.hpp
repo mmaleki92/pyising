@@ -43,6 +43,7 @@ public:
     void initialize_spins();
     void compute_neighbors();
     void do_step_metropolis(double tstar, int N);
+    void do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank); 
     void do_step_wolff(double tstar, int N);
 
     double compute_energy();
