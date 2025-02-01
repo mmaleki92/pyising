@@ -66,7 +66,6 @@ std::vector<Results> run_parallel_metropolis(
     // Shared counter for progress
     std::atomic<size_t> progress_counter{0};
 
-    // Parallel loop
     #pragma omp parallel for
     for (size_t i = 0; i < local_temps.size(); ++i) {
         int thread_id = omp_get_thread_num();
@@ -77,30 +76,27 @@ std::vector<Results> run_parallel_metropolis(
         model.initialize_spins();
         model.compute_neighbors();
 
-
         if (save_all_configs) {
-                model.enable_save_all_configs(true);
+            model.enable_save_all_configs(true);
         }
 
-
+        // Perform the chosen algorithm
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps);
         } else {
             model.do_step_metropolis(local_temps[i], N_steps);
         }
 
-
+        // Collect results
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
         local_results[i].L = L;
 
-
+        // Create a subdirectory for each temperature (thread-safe creation)
         std::stringstream ss;
-        ss << std::fixed << std::setprecision(3) << temps[i];
+        ss << std::fixed << std::setprecision(3) << local_temps[i];
         std::string T_str = ss.str();
         std::string T_dir;
-
-        // Create a subdirectory for each temperature
         #pragma omp critical
         {
             T_dir = L_dir + "/T_" + T_str;
@@ -120,29 +116,41 @@ std::vector<Results> run_parallel_metropolis(
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
-
+                cnpy::npy_save(all_filename, flattened.data(),
+                            {num_steps, L_size, L_size}, "w");
             }
         } else {
             // Save only the final configuration
             std::string filename = T_dir + "/config.npy";
             const std::vector<int>& config = local_results[i].configuration;
-            cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
+            cnpy::npy_save(filename, config.data(),
+                        {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
-
+        // Update progress counter (atomic among threads)
         size_t current_count = ++progress_counter;
-        if (rank == 0 && (current_count % 5 == 0 || current_count == local_temps.size())) {
-            #pragma omp critical
-            {
-                bar.set_progress(current_count);
-            }
+
+        // Use MPI to gather total progress across processes
+        size_t global_progress = 0;
+        MPI_Allreduce(&current_count, &global_progress, 1, MPI_UNSIGNED_LONG_LONG,
+                    MPI_SUM, MPI_COMM_WORLD);
+
+        // Only rank 0 should update the progress bar
+        if (rank == 0) {
+            // total_temps is the total number of temperatures across all processes
+            size_t total_temps = temps.size();
+            bar.set_progress(static_cast<size_t>(global_progress));
+
+            // Optionally, show the current temperature in the postfix text
+            // (Note that local_temps[i] may differ across processes at any given time.)
+            bar.set_option(indicators::option::PostfixText{
+                "Rank " + std::to_string(rank) +
+                " processing T=" + T_str + "..."});
         }
-
-    }
-
+    } 
     return local_results;
-    }
+
+}
 
 Results Ising2D::get_results() const {
     Results res;
