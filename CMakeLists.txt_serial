@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(Ising2DProjectMPI LANGUAGES CXX)
+project(Ising2DProject LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,15 +29,7 @@ else()
     message(FATAL_ERROR "OpenMP not found. Please install OpenMP.")
 endif()
 
-# Find MPI
-find_package(MPI REQUIRED)
-if(MPI_FOUND)
-    message(STATUS "MPI found. Enabling MPI support.")
-else()
-    message(FATAL_ERROR "MPI not found. Please install MPI.")
-endif()
-
-# Create a static library for the Ising2D implementation (MPI version)
+# Create a static library for the Ising2D implementation
 add_library(ising STATIC
     src/ising.cpp
     src/ising.hpp
@@ -55,13 +47,12 @@ target_link_libraries(ising PUBLIC
     cnpy
     indicators
     OpenMP::OpenMP_CXX
-    MPI::MPI_CXX
 )
 
-# Build the Python module using pybind11 (MPI version)
+# Build the Python module using pybind11
 pybind11_add_module(_pyising src/bindings.cpp)
 target_compile_options(_pyising PRIVATE -O3 -march=native -fopenmp)
-target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX MPI::MPI_CXX)
+target_link_libraries(_pyising PRIVATE ising OpenMP::OpenMP_CXX)
 set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")
 
 # If using an older GNU compiler for <filesystem>:
@@ -69,7 +60,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_L
     target_link_libraries(ising PRIVATE stdc++fs)
     target_link_libraries(_pyising PRIVATE stdc++fs)
 endif()
-
 
 # Install rules
 install(TARGETS cnpy LIBRARY DESTINATION .)

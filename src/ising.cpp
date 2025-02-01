@@ -43,10 +43,9 @@ std::vector<Results> run_parallel_metropolis(
 
     // Create directory for current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
-    #pragma omp critical
-    {
-        std::filesystem::create_directories(L_dir);
-    }
+
+    std::filesystem::create_directories(L_dir);
+
 
     // Configure the progress bar
     indicators::ProgressBar bar{
@@ -63,7 +62,7 @@ std::vector<Results> run_parallel_metropolis(
         indicators::option::ShowElapsedTime{true},
         indicators::option::ShowRemainingTime{true},
         indicators::option::MaxProgress{local_temps.size()},       };
-
+    
     // Shared counter for progress
     std::atomic<size_t> progress_counter{0};
 
@@ -121,10 +120,8 @@ std::vector<Results> run_parallel_metropolis(
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-                #pragma omp critical
-                {
-                    cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
-                }
+                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
+
             }
         } else {
             // Save only the final configuration
@@ -134,12 +131,14 @@ std::vector<Results> run_parallel_metropolis(
         }
 
 
-        // Update the progress bar
         size_t current_count = ++progress_counter;
-        #pragma omp critical
-        {
-            bar.set_progress(current_count);
+        if (rank == 0 && (current_count % 5 == 0 || current_count == local_temps.size())) {
+            #pragma omp critical
+            {
+                bar.set_progress(current_count);
+            }
         }
+
     }
 
     return local_results;
