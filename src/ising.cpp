@@ -1,16 +1,16 @@
-#include "ising.hpp"
+#include <omp.h>
+#include <stack>
+#include <string>
 #include <iostream>
-#include <cmath>
-#include <cstdlib>
 #include <vector>
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
+#include "ising.hpp"
 #include "cnpy/cnpy.h"
-#include <omp.h>
+
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
-
 
 #define UP    0
 #define RIGHT 1
@@ -128,12 +128,6 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
-    // Mark the bar as complete when done
-    // bar.mark_as_completed();
-
-    // Print a final message
-    // std::cout << "All simulations completed successfully!\n";
-
     return results;
 }
 
@@ -152,19 +146,16 @@ Results Ising2D::get_results() const {
     return res;
 }
 
-
 void Ising2D::do_metropolis_step(double tstar)
 {
-
     compute_metropolis_factors(tstar);
 
     // Perform exactly one spin-flip attempt
-    metropolis_flip_spin();
+    metropolis_flip_spin(tstar);
 }
 
-// NEW addition: single-step method for Wolff
-void Ising2D::do_wolff_step(double tstar)
-{
+
+void Ising2D::do_wolff_step(double tstar) {
     // Probability for adding a neighbor to the cluster
     double p = 1.0 - std::exp(-2.0 / tstar);
 
@@ -172,131 +163,79 @@ void Ising2D::do_wolff_step(double tstar)
     int pos = m_ran_pos(m_gen);
 
     // Flip cluster around pos
-    wolff_add_to_cluster(pos, p);
+    wolff_cluster_update(p);
 }
 
 // Existing method (for reference)
-std::vector<int> Ising2D::get_configuration() const
-{
-    std::vector<int> config(m_SIZE, 0);
-    for (int i = 0; i < m_SIZE; i++)
-    {
-        config[i] = spin_val(m_spins[i]);  // +1 or -1
-    }
-    return config;
+std::vector<int> Ising2D::get_configuration() const {
+    return std::vector<int>(m_spins.begin(), m_spins.end());
 }
+
 
 Ising2D::Ising2D(int L, unsigned int seed)
-    : m_L(L),
-      m_SIZE(L*L),
-      m_gen(seed),
-      m_ran_pos(0, L*L - 1),
-      m_ran_u(0.0, 1.0),
-      m_brandom(0, 1),
-      m_spins(L*L, false),
-      m_neighbors(L*L, std::vector<int>(4, 0)),
-      m_energy(0.0),
-      m_meanMag(0.0),
-      m_meanMag2(0.0),
-      m_meanMag4(0.0),
-      m_meanEne(0.0),
-      m_meanEne2(0.0),
-      m_meanEne4(0.0),
-      m_binder(0.0)
-{
-}
+    : m_L(L), m_SIZE(L*L),
+      m_gen(seed), m_ran_pos(0, L*L-1), m_ran_u(0.0, 1.0),
+      m_spins(L*L, 1), m_neighbors(4*L*L, 0),
+      m_energy(0.0), m_save_all_configs(false) {}
 
-void Ising2D::initialize_spins()
-{
-    for (int i = 0; i < m_SIZE; i++) {
-        m_spins[i] = (m_brandom(m_gen) == 1);
+
+void Ising2D::initialize_spins() {
+    std::uniform_int_distribution<int> init_dist(0, 1);
+    for (auto& s : m_spins) {
+        s = init_dist(m_gen) ? 1 : -1;
     }
-    m_energy = compute_energy();  // Initialize energy correctly
+    compute_neighbors();
+    m_energy = compute_energy();
 }
 
 
-void Ising2D::compute_neighbors()
-{
-    for (int i = 0; i < m_L; i++) {
-        for (int j = 0; j < m_L; j++) {
-            int idx = i + j*m_L;
-            int u = (j+1 == m_L) ? 0 : j+1;
-            int d = (j-1 < 0)    ? m_L-1 : j-1;
-            int r = (i+1 == m_L) ? 0 : i+1;
-            int l = (i-1 < 0)    ? m_L-1 : i-1;
-
-            m_neighbors[idx][UP]    = i + u*m_L;
-            m_neighbors[idx][DOWN]  = i + d*m_L;
-            m_neighbors[idx][RIGHT] = r + j*m_L;
-            m_neighbors[idx][LEFT]  = l + j*m_L;
+void Ising2D::compute_neighbors() {
+    for (int y = 0; y < m_L; ++y) {
+        for (int x = 0; x < m_L; ++x) {
+            const int idx = y * m_L + x;
+            m_neighbors[4*idx]     = y * m_L + wrap(x + 1);    // Right
+            m_neighbors[4*idx + 1] = y * m_L + wrap(x - 1);    // Left
+            m_neighbors[4*idx + 2] = wrap(y + 1) * m_L + x;    // Down
+            m_neighbors[4*idx + 3] = wrap(y - 1) * m_L + x;    // Up
         }
     }
 }
 
-double Ising2D::compute_energy()
-{
-    int totalEnergy = 0;
-    for (int i = 0; i < m_SIZE; i++) {
-        int s_i = spin_val(m_spins[i]);
-        int sum_neigh = spin_val(m_spins[m_neighbors[i][UP]])
-                      + spin_val(m_spins[m_neighbors[i][DOWN]])
-                      + spin_val(m_spins[m_neighbors[i][RIGHT]])
-                      + spin_val(m_spins[m_neighbors[i][LEFT]]);
-        totalEnergy += s_i * sum_neigh;
+double Ising2D::compute_energy() {
+    int total = 0;
+    for (int i = 0; i < m_SIZE; ++i) {
+        total += m_spins[i] * (m_spins[m_neighbors[4*i + UP]] + m_spins[m_neighbors[4*i + DOWN]] +
+                               m_spins[m_neighbors[4*i + LEFT]] + m_spins[m_neighbors[4*i + RIGHT]]);
     }
-    return -totalEnergy / 2.0;  // Correct energy calculation
+    return -total / 2.0;  // Convert to double when needed
 }
 
-
-double Ising2D::magnetization() const
-{
+double Ising2D::magnetization() const {
     double sum = 0.0;
-    for (int i = 0; i < m_SIZE; i++) {
-        sum += spin_val(m_spins[i]);
-    }
-    return (sum / (double)m_SIZE);
+    for (const auto s : m_spins) sum += s;
+    return sum / m_SIZE;
 }
 
 void Ising2D::compute_metropolis_factors(double tstar) {
-    m_h.resize(5);  // For deltaE values: -8, -4, 0, +4, +8
-    for (int deltaE : {-8, -4, 0, 4, 8}) {
-        int idx = (deltaE + 8) / 4;
-        if (deltaE <= 0) {
-            m_h[idx] = 1.0;
-        } else {
-            m_h[idx] = std::exp(-deltaE / tstar);
-        }
+    m_h.resize(5);
+    for (int de : {-8, -4, 0, 4, 8}) {
+        m_h[(de+8)/4] = de <= 0 ? 1.0 : exp(-de/tstar);
     }
 }
+void Ising2D::metropolis_flip_spin(double tstar) {
+    const int idx = m_ran_pos(m_gen);
+    const int s = m_spins[idx];
 
-void Ising2D::metropolis_flip_spin()
-{
-    int index = m_ran_pos(m_gen);
-    int sum_neigh = spin_val(m_spins[m_neighbors[index][UP]])
-                  + spin_val(m_spins[m_neighbors[index][DOWN]])
-                  + spin_val(m_spins[m_neighbors[index][RIGHT]])
-                  + spin_val(m_spins[m_neighbors[index][LEFT]]);
-    int currentSpin = spin_val(m_spins[index]);
-    int deltaE = 2 * currentSpin * sum_neigh;
+    // Sum neighbors using precomputed indices
+    const int* n = &m_neighbors[4*idx];
+    const int sum = m_spins[n[0]] + m_spins[n[1]] + m_spins[n[2]] + m_spins[n[3]];
 
-    int idx = (deltaE + 8) / 4;
-    if (idx < 0 || idx >= m_h.size()) {
-        // Handle error: unexpected deltaE value
-        return;
-    }
+    const int deltaE = 2 * s * sum;
+    const int h_idx = (deltaE + 8)/4;
 
-    if (m_ran_u(m_gen) < m_h[idx]) {
-        m_spins[index] = !m_spins[index];
-        m_energy += deltaE;  // Update total energy correctly
-    }
-}
-
-void Ising2D::thermalize_metropolis(double tstar)
-{
-    // Example: 1100 steps was used in original code
-    // This is arbitrary, you can adjust as needed
-    for (int i = 0; i < 1100; i++) {
-        metropolis_flip_spin();
+    if (m_ran_u(m_gen) < m_h[h_idx]) {
+        m_spins[idx] = -s;
+        m_energy += deltaE;
     }
 }
 
@@ -319,41 +258,40 @@ void Ising2D::measure_observables(double N) {
 }
 
 void Ising2D::do_step_metropolis(double tstar, int N) {
-    // Reset accumulators
-    m_meanMag  = 0.0;
-    m_meanMag2 = 0.0;
-    m_meanMag4 = 0.0;
-    m_meanEne  = 0.0;
-    m_meanEne2 = 0.0;
-    m_meanEne4 = 0.0;
-    m_binder   = 0.0;
-
-    // Precompute the acceptance factors
     compute_metropolis_factors(tstar);
 
-    // Thermalize
-    thermalize_metropolis(tstar);
-
-    // Perform N iterations each followed by partial "equilibration"
-    // (like original code: 1100 flips per measurement)
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < 1100; j++)
-            metropolis_flip_spin();
-
-        // Measure
-        measure_observables((double)N);
+    // Thermalization (vectorized)
+    for (int i = 0; i < 1100; ++i) {
+        metropolis_flip_spin(tstar);
     }
 
-    // Convert from sum to average
-    m_meanMag  /= (double)N;
-    m_meanMag2 /= (double)N;
-    m_meanMag4 /= (double)N;
-    m_meanEne  /= (double)N;
-    m_meanEne2 /= (double)N;
-    m_meanEne4 /= (double)N;
+    // Measurement phase
+    double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
+    double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
 
-    // Binder cumulant:
-    // U = 1 - <m^4> / (3 <m^2>^2)
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < 1100; ++j) {
+            metropolis_flip_spin(tstar);
+        }
+
+        const double mag = fabs(magnetization());
+        const double ene = m_energy;
+
+        mag_sum += mag;
+        mag2_sum += mag*mag;
+        mag4_sum += mag*mag*mag*mag;
+        ene_sum += ene;
+        ene2_sum += ene*ene;
+        ene4_sum += ene*ene*ene*ene;
+    }
+
+    // Store results
+    m_meanMag = mag_sum / N;
+    m_meanMag2 = mag2_sum / N;
+    m_meanMag4 = mag4_sum / N;
+    m_meanEne = ene_sum / N;
+    m_meanEne2 = ene2_sum / N;
+    m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
 
@@ -362,74 +300,79 @@ void Ising2D::thermalize_wolff(double tstar) {
     for (int i = 0; i < 15; i++) {
         int pos = m_ran_pos(m_gen);
         double p = 1.0 - std::exp(-2.0 / tstar);
-        wolff_add_to_cluster(pos, p);
+        wolff_cluster_update(p);
     }
 }
 
-void Ising2D::wolff_add_to_cluster(int pos, double p) {
-    // Calculate local energy contribution first
-    int sum_neigh = spin_val(m_spins[m_neighbors[pos][UP]])
-                  + spin_val(m_spins[m_neighbors[pos][DOWN]])
-                  + spin_val(m_spins[m_neighbors[pos][RIGHT]])
-                  + spin_val(m_spins[m_neighbors[pos][LEFT]]);
+void Ising2D::wolff_cluster_update(double p) {
+    std::stack<int> stack;
+    std::vector<bool> in_cluster(m_SIZE, false);
 
-    // if spin=+1 => deltaE = 2*sum_neigh -4
-    // if spin=-1 => deltaE = 4 -2*sum_neigh
-    int deltaE = 0;
-    if (m_spins[pos])
-        deltaE = (2 * sum_neigh - 4);
-    else
-        deltaE = (4 - 2 * sum_neigh);
+    const int start = m_ran_pos(m_gen);
+    const char target_spin = m_spins[start];
+    int cluster_size = 0;
 
-    // Flip the spin, adjust energy
-    m_energy += (2.0 * deltaE) / (m_SIZE * 1.0);
-    m_spins[pos] = !m_spins[pos];
+    stack.push(start);
+    in_cluster[start] = true;
 
-    // Now check neighbors
-    int newSpinVal = spin_val(m_spins[pos]);
-    int oldSpinVal = -newSpinVal; 
+    while (!stack.empty()) {
+        const int current = stack.top();
+        stack.pop();
+        m_spins[current] = -target_spin;
+        cluster_size++;
 
-    // For each neighbor, if oldSpinVal is found => possibly add to cluster
-    for (int i = 0; i < 4; i++) {
-        int npos = m_neighbors[pos][i];
-        if (spin_val(m_spins[npos]) == oldSpinVal) {
-            // Probability p
-            if (m_ran_u(m_gen) < p) {
-                wolff_add_to_cluster(npos, p);
+        const int* neighbors = &m_neighbors[4*current];
+        for (int i = 0; i < 4; ++i) {
+            const int nidx = neighbors[i];
+            if (!in_cluster[nidx] && m_spins[nidx] == target_spin) {
+                if (m_ran_u(m_gen) < p) {
+                    stack.push(nidx);
+                    in_cluster[nidx] = true;
+                }
             }
         }
     }
+
+    // Update energy (ΔE = 2 * cluster_size * (4 - 2*4)/m_SIZE)
+    m_energy += (8.0 * cluster_size) / m_SIZE;
 }
-
 void Ising2D::do_step_wolff(double tstar, int N) {
-    m_meanMag  = 0.0;
-    m_meanMag2 = 0.0;
-    m_meanMag4 = 0.0;
-    m_meanEne  = 0.0;
-    m_meanEne2 = 0.0;
-    m_meanEne4 = 0.0;
-    m_binder   = 0.0;
-
-    // Thermalize with some cluster updates
-    thermalize_wolff(tstar);
-
-    for (int i = 0; i < N; i++) {
-        // Each iteration do ~12 cluster updates
-        for (int j = 0; j < 12; j++) {
-            int pos = m_ran_pos(m_gen);
-            double pa = 1.0 - std::exp(-2.0 / tstar);
-            wolff_add_to_cluster(pos, pa);
-        }
-        measure_observables((double)N);
+    const double p = 1.0 - exp(-2.0/tstar);
+    
+    // Thermalization
+    for(int i = 0; i < 15; ++i) {
+        wolff_cluster_update(p);
     }
 
-    m_meanMag  /= (double)N;
-    m_meanMag2 /= (double)N;
-    m_meanMag4 /= (double)N;
-    m_meanEne  /= (double)N;
-    m_meanEne2 /= (double)N;
-    m_meanEne4 /= (double)N;
+    // Measurement
+    double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
+    double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
 
-    // Binder cumulant
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < 12; ++j) {
+            wolff_cluster_update(p);
+        }
+
+        const double mag = fabs(magnetization());
+        const double ene = m_energy;
+
+        mag_sum += mag;
+        mag2_sum += mag*mag;
+        mag4_sum += mag*mag*mag*mag;
+        ene_sum += ene;
+        ene2_sum += ene*ene;
+        ene4_sum += ene*ene*ene*ene;
+    }
+
+    m_meanMag = mag_sum / N;
+    m_meanMag2 = mag2_sum / N;
+    m_meanMag4 = mag4_sum / N;
+    m_meanEne = ene_sum / N;
+    m_meanEne2 = ene2_sum / N;
+    m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
+}
+
+void Ising2D::enable_save_all_configs(bool enable) {
+    m_save_all_configs = enable;
 }

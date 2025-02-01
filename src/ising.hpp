@@ -4,6 +4,8 @@
 #include <random>
 #include <chrono>
 #include <map>
+#include <pcg_random.hpp>
+#include <cmath>
 
 struct Results {
     // Existing members
@@ -25,26 +27,26 @@ struct Results {
     std::vector<double> timing_per_step;         // Per-step timing
 
 };
-    std::vector<Results> run_parallel_metropolis(
-        const std::vector<double>& temps, int L, int N_steps,
-        unsigned int seed_base, const std::string& output_dir,
-        bool use_wolff, bool save_all_configs
-        );
+
+std::vector<Results> run_parallel_metropolis(
+    const std::vector<double>& temps, int L, int N_steps,
+    unsigned int seed_base, const std::string& output_dir,
+    bool use_wolff, bool save_all_configs );
+
+
 class Ising2D
 {
 public:
     Ising2D(int L, unsigned int seed);
-
-    bool m_save_all_configs = false;
-    std::vector<std::vector<int>> m_all_configs;
     // Public API
     void initialize_spins();
     void compute_neighbors();
+    void do_step_metropolis(double tstar, int N);
+    void do_step_wolff(double tstar, int N);
+
     double compute_energy();
     double magnetization() const;
     // Existing "batch" methods (optional to keep)
-    void do_step_metropolis(double tstar, int N);
-    void do_step_wolff(double tstar, int N);
 
     // NEW addition: single-step methods for Python loops
     void do_metropolis_step(double tstar);
@@ -65,58 +67,45 @@ public:
     // Number of spins in one lattice dimension
     int get_L() const { return m_L; }
 
-    Results get_results() const {
-        Results res;
-        // Copy over the observables to the struct
-        res.binder          = m_binder;
-        res.meanMag         = m_meanMag;
-        res.meanMag2        = m_meanMag2;
-        res.meanMag4        = m_meanMag4;
-        res.meanEne         = m_meanEne;
-        res.meanEne2        = m_meanEne2;
-        res.meanEne4        = m_meanEne4;
-        // Spins/configurations
-        res.configuration   = get_configuration();
-        res.all_configurations = m_all_configs;
-        return res;
-    }
+    Results get_results() const;
+    void enable_save_all_configs(bool enable);
 
-    void enable_save_all_configs(bool enable) {
-        m_save_all_configs = enable;
-    }
 private:
     // Internal methods
-    void metropolis_flip_spin();
-    void wolff_add_to_cluster(int pos, double p);
+    // void wolff_add_to_cluster(int pos, double p);
     void measure_observables(double N);
     void thermalize_metropolis(double tstar);
     void thermalize_wolff(double tstar);
-    int m_L;
-    int m_SIZE;
 
-    std::mt19937 m_gen;
-    std::uniform_int_distribution<int> m_ran_pos; 
+
+    // RNG
+    pcg32 m_gen;
+    std::uniform_int_distribution<int> m_ran_pos;
     std::uniform_real_distribution<double> m_ran_u;
-    std::uniform_int_distribution<int> m_brandom;
-    
-    std::vector<bool> m_spins;
-    std::vector< std::vector<int> > m_neighbors;
-    std::vector<double> m_h; // Changed from double m_h[5] to std::vector<double>
+
+    // Spin storage and neighbors
+    std::vector<char> m_spins;  // +1/-1 directly
+    std::vector<int> m_neighbors;  // Flat array [4 * m_SIZE]
+
+    // System parameters
+    int m_L, m_SIZE;
     double m_energy;
+    std::vector<double> m_h;
 
-    // Measured quantities
-    double m_meanMag;
-    double m_meanMag2;
-    double m_meanMag4;
-    double m_meanEne;
-    double m_meanEne2;
-    double m_meanEne4;
+
+
+    // Measurement buffers
+    double m_meanMag, m_meanMag2, m_meanMag4;
+    double m_meanEne, m_meanEne2, m_meanEne4;
     double m_binder;
+    bool m_save_all_configs;
+    std::vector<std::vector<int>> m_all_configs;
 
-private:
-    // Private methods for flipping spins, building clusters, etc.
+    // Optimized methods
+    inline int spin_val(char s) const { return s; }
+    void metropolis_flip_spin(double tstar);
+    void wolff_cluster_update(double p);
     void compute_metropolis_factors(double tstar);
+    inline int wrap(int coord) const { return (coord + m_L) % m_L; }
 
-    // NEW utility method: interpret bool spin as ±1
-    inline int spin_val(bool s) const { return (s ? +1 : -1); }
 };
