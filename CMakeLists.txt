@@ -14,9 +14,9 @@ endif()
 add_subdirectory(pybind11)
 add_subdirectory(cnpy)
 
-# ────────────────────
+#---------------------
 #  Add indicators here
-# ────────────────────
+#---------------------
 option(INDICATORS_BUILD_EXAMPLES OFF) # Disable examples
 option(INDICATORS_BUILD_TESTS OFF)    # Disable tests
 add_subdirectory(indicators)
