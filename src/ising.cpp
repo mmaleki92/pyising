@@ -111,7 +111,7 @@ std::vector<Results> run_parallel_metropolis(
         // Save configurations
         if (save_all_configs) {
             std::string all_filename = T_dir + "/all_configs.npy";
-            const auto& all_configs = results[i].all_configurations;
+            const auto& all_configs = local_results[i].all_configurations;
             if (!all_configs.empty()) {
                 size_t num_steps = all_configs.size();
                 size_t L_size = static_cast<size_t>(L);
@@ -129,7 +129,7 @@ std::vector<Results> run_parallel_metropolis(
         } else {
             // Save only the final configuration
             std::string filename = T_dir + "/config.npy";
-            const std::vector<int>& config = results[i].configuration;
+            const std::vector<int>& config = local_results[i].configuration;
             cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
