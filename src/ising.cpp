@@ -364,7 +364,7 @@ void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
 void Ising2D::do_step_metropolis(double tstar, int N) {
     compute_metropolis_factors(tstar);
 
-    // Thermalization (vectorized)
+    // Thermalization
     for (int i = 0; i < 1100; ++i) {
         metropolis_flip_spin(tstar);
     }
@@ -382,11 +382,16 @@ void Ising2D::do_step_metropolis(double tstar, int N) {
         const double ene = m_energy;
 
         mag_sum += mag;
-        mag2_sum += mag*mag;
-        mag4_sum += mag*mag*mag*mag;
+        mag2_sum += mag * mag;
+        mag4_sum += mag * mag * mag * mag;
         ene_sum += ene;
-        ene2_sum += ene*ene;
-        ene4_sum += ene*ene*ene*ene;
+        ene2_sum += ene * ene;
+        ene4_sum += ene * ene * ene * ene;
+
+        // Save current configuration if enabled
+        if (m_save_all_configs) {
+            m_all_configs.push_back(get_configuration());
+        }
     }
 
     // Store results
