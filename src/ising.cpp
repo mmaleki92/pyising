@@ -108,6 +108,7 @@ std::vector<Results> run_parallel_metropolis(
         std::string T_str = ss.str();
         std::string T_dir;
 
+        // Creating the temperature directory in a critical section to avoid race conditions
         #pragma omp critical
         {
             T_dir = L_dir + "/T_" + T_str;
@@ -160,6 +161,9 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
+    // Synchronize all MPI processes to ensure file I/O is complete
+    MPI_Barrier(MPI_COMM_WORLD);
+
     // Final update to ensure the bar is complete
     if (rank == 0) {
         MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
@@ -176,6 +180,7 @@ std::vector<Results> run_parallel_metropolis(
 
     return local_results;
 }
+
 Results Ising2D::get_results() const {
     Results res;
     res.binder = m_binder;
