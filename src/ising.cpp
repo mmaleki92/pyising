@@ -291,10 +291,11 @@ void Ising2D::measure_observables(double N) {
     }
 }
 
-void Ising2D::do_step_metropolis(double tstar, int N) {
+void Ising2D::do_step_metropolis(double tstar, int N, MPI_Win win, int rank)
+{
     compute_metropolis_factors(tstar);
 
-    // Thermalization (vectorized)
+    // Thermalization phase
     for (int i = 0; i < 1100; ++i) {
         metropolis_flip_spin(tstar);
     }
@@ -304,31 +305,40 @@ void Ising2D::do_step_metropolis(double tstar, int N) {
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
 
     for (int i = 0; i < N; ++i) {
+        // Perform 1100 Metropolis spin flips
         for (int j = 0; j < 1100; ++j) {
             metropolis_flip_spin(tstar);
         }
 
+        // Measure magnetization, energy, etc.
         const double mag = fabs(magnetization());
         const double ene = m_energy;
 
         mag_sum += mag;
-        mag2_sum += mag*mag;
-        mag4_sum += mag*mag*mag*mag;
+        mag2_sum += mag * mag;
+        mag4_sum += mag * mag * mag * mag;
         ene_sum += ene;
-        ene2_sum += ene*ene;
-        ene4_sum += ene*ene*ene*ene;
+        ene2_sum += ene * ene;
+        ene4_sum += ene * ene * ene * ene;
+
+        // Update progress after each 1000 measurements
+        if ((i + 1) % 1000 == 0) {
+            int one = 1;
+            MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
+            MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
+            MPI_Win_unlock(0, win);
+        }
     }
 
-    // Store results
-    m_meanMag = mag_sum / N;
+    // Finalize averages
+    m_meanMag  = mag_sum / N;
     m_meanMag2 = mag2_sum / N;
     m_meanMag4 = mag4_sum / N;
-    m_meanEne = ene_sum / N;
+    m_meanEne  = ene_sum / N;
     m_meanEne2 = ene2_sum / N;
     m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
-
 void Ising2D::thermalize_wolff(double tstar) {
     // Thermalize for ~5 full lattice sweeps
     for (int i = 0; i < 5 * m_SIZE; ++i) {
