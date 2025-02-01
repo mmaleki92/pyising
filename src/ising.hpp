@@ -6,6 +6,7 @@
 #include <map>
 #include <pcg_random.hpp>
 #include <cmath>
+#include <mpi.h> 
 
 struct Results {
     // Existing members

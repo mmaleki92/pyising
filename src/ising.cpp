@@ -11,7 +11,7 @@
 
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
-
+#include <mpi.h>
 #define UP    0
 #define RIGHT 1
 #define LEFT  2
@@ -26,7 +26,20 @@ std::vector<Results> run_parallel_metropolis(
     bool use_wolff,
     bool save_all_configs
 ) {
-    std::vector<Results> results(temps.size());
+
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // Split temperatures across MPI processes
+    int num_temps = temps.size();
+    int local_num = num_temps / size;
+    int remainder = num_temps % size;
+    int start = rank * local_num + std::min(rank, remainder);
+    int end = start + local_num + (rank < remainder ? 1 : 0);
+    std::vector<double> local_temps(temps.begin() + start, temps.begin() + end);
+
+    std::vector<Results> local_results(local_temps.size());
 
     // Create directory for current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
@@ -49,38 +62,39 @@ std::vector<Results> run_parallel_metropolis(
             std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
         indicators::option::ShowElapsedTime{true},
         indicators::option::ShowRemainingTime{true},
-        indicators::option::MaxProgress{temps.size()},
-        // Hide the bar from the console once it's marked as completed
-    };
+        indicators::option::MaxProgress{local_temps.size()},       };
 
     // Shared counter for progress
     std::atomic<size_t> progress_counter{0};
 
     // Parallel loop
     #pragma omp parallel for
-    for (size_t i = 0; i < temps.size(); ++i) {
+    for (size_t i = 0; i < local_temps.size(); ++i) {
         int thread_id = omp_get_thread_num();
         int total_threads = omp_get_num_threads();
 
-        unsigned int seed = seed_base + static_cast<unsigned int>(i);
+        unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
         Ising2D model(L, seed);
         model.initialize_spins();
         model.compute_neighbors();
 
+
         if (save_all_configs) {
-            model.enable_save_all_configs(true);
+                model.enable_save_all_configs(true);
         }
 
-        // Decide Metropolis vs Wolff
+
         if (use_wolff) {
-            model.do_step_wolff(temps[i], N_steps);
+            model.do_step_wolff(local_temps[i], N_steps);
         } else {
-            model.do_step_metropolis(temps[i], N_steps);
+            model.do_step_metropolis(local_temps[i], N_steps);
         }
 
-        results[i] = model.get_results();
-        results[i].T = temps[i];
-        results[i].L = L;
+
+        local_results[i] = model.get_results();
+        local_results[i].T = local_temps[i];
+        local_results[i].L = L;
+
 
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << temps[i];
@@ -128,8 +142,8 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
-    return results;
-}
+    return local_results;
+    }
 
 Results Ising2D::get_results() const {
     Results res;
