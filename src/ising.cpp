@@ -136,6 +136,23 @@ std::vector<Results> run_parallel_metropolis(
 
     return results;
 }
+
+Results Ising2D::get_results() const {
+    Results res;
+    res.binder = m_binder;
+    res.meanMag = m_meanMag;
+    res.meanMag2 = m_meanMag2;
+    res.meanMag4 = m_meanMag4;
+    res.meanEne = m_meanEne;
+    res.meanEne2 = m_meanEne2;
+    res.meanEne4 = m_meanEne4;
+    res.configuration = get_configuration();
+    res.all_configurations = m_all_configs;
+    res.L = m_L;
+    return res;
+}
+
+
 void Ising2D::do_metropolis_step(double tstar)
 {
 
