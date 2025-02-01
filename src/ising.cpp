@@ -1,4 +1,5 @@
 #include <omp.h>
+#include <mpi.h>
 #include <stack>
 #include <string>
 #include <iostream>
@@ -6,12 +7,12 @@
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
+
 #include "ising.hpp"
 #include "cnpy/cnpy.h"
 
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
-#include <mpi.h>
 #define UP    0
 #define RIGHT 1
 #define LEFT  2
@@ -26,7 +27,6 @@ std::vector<Results> run_parallel_metropolis(
     bool use_wolff,
     bool save_all_configs
 ) {
-
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -43,34 +43,41 @@ std::vector<Results> run_parallel_metropolis(
 
     // Create directory for current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
-
     std::filesystem::create_directories(L_dir);
 
+    // Setup MPI window for global progress counter
+    MPI_Win win;
+    int* global_counter = nullptr;
+    if (rank == 0) {
+        MPI_Alloc_mem(sizeof(int), MPI_INFO_NULL, &global_counter);
+        *global_counter = 0;
+        MPI_Win_create(global_counter, sizeof(int), 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+    } else {
+        MPI_Win_create(nullptr, 0, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+    }
 
-    // Configure the progress bar
-    indicators::ProgressBar bar{
-        indicators::option::BarWidth{50},
-        indicators::option::Start{"["},
-        indicators::option::Fill{"="},
-        indicators::option::Lead{">"},
-        indicators::option::Remainder{" "},
-        indicators::option::End{"]"},
-        indicators::option::PostfixText{"Running simulations..."},
-        indicators::option::ForegroundColor{indicators::Color::green},
-        indicators::option::FontStyles{
-            std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
-        indicators::option::ShowElapsedTime{true},
-        indicators::option::ShowRemainingTime{true},
-        indicators::option::MaxProgress{local_temps.size()},       };
-    
-    // Shared counter for progress
-    std::atomic<size_t> progress_counter{0};
+    // Configure progress bar on rank 0
+    indicators::ProgressBar bar;
+    if (rank == 0) {
+        bar.set_option(indicators::option::BarWidth{50});
+        bar.set_option(indicators::option::Start{"["});
+        bar.set_option(indicators::option::Fill{"="});
+        bar.set_option(indicators::option::Lead{">"});
+        bar.set_option(indicators::option::Remainder{" "});
+        bar.set_option(indicators::option::End{"]"});
+        bar.set_option(indicators::option::PostfixText{"Running simulations..."});
+        bar.set_option(indicators::option::ForegroundColor{indicators::Color::green});
+        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}});
+        bar.set_option(indicators::option::ShowElapsedTime{true});
+        bar.set_option(indicators::option::ShowRemainingTime{true});
+        bar.set_option(indicators::option::MaxProgress{num_temps});
+    }
 
+    // Parallel loop
     #pragma omp parallel for
     for (size_t i = 0; i < local_temps.size(); ++i) {
+        // Process temperature (existing code)
         int thread_id = omp_get_thread_num();
-        int total_threads = omp_get_num_threads();
-
         unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
         Ising2D model(L, seed);
         model.initialize_spins();
@@ -80,78 +87,84 @@ std::vector<Results> run_parallel_metropolis(
             model.enable_save_all_configs(true);
         }
 
-        // Perform the chosen algorithm
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps);
         } else {
             model.do_step_metropolis(local_temps[i], N_steps);
         }
 
-        // Collect results
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
         local_results[i].L = L;
 
-        // Create a subdirectory for each temperature (thread-safe creation)
+        // Save configurations (existing code)
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << local_temps[i];
         std::string T_str = ss.str();
         std::string T_dir;
+
         #pragma omp critical
         {
             T_dir = L_dir + "/T_" + T_str;
             std::filesystem::create_directories(T_dir);
         }
 
-        // Save configurations
         if (save_all_configs) {
             std::string all_filename = T_dir + "/all_configs.npy";
             const auto& all_configs = local_results[i].all_configurations;
             if (!all_configs.empty()) {
                 size_t num_steps = all_configs.size();
                 size_t L_size = static_cast<size_t>(L);
-
                 std::vector<int> flattened;
                 flattened.reserve(num_steps * L_size * L_size);
                 for (const auto& config : all_configs) {
                     flattened.insert(flattened.end(), config.begin(), config.end());
                 }
-                cnpy::npy_save(all_filename, flattened.data(),
-                            {num_steps, L_size, L_size}, "w");
+                cnpy::npy_save(all_filename, flattened.data(), {num_steps, L_size, L_size}, "w");
             }
         } else {
-            // Save only the final configuration
             std::string filename = T_dir + "/config.npy";
             const std::vector<int>& config = local_results[i].configuration;
-            cnpy::npy_save(filename, config.data(),
-                        {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
+            cnpy::npy_save(filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
         }
 
-        // Update progress counter (atomic among threads)
-        size_t current_count = ++progress_counter;
-
-        // Use MPI to gather total progress across processes
-        size_t global_progress = 0;
-        MPI_Allreduce(&current_count, &global_progress, 1, MPI_UNSIGNED_LONG_LONG,
-                    MPI_SUM, MPI_COMM_WORLD);
-
-        // Only rank 0 should update the progress bar
-        if (rank == 0) {
-            // total_temps is the total number of temperatures across all processes
-            size_t total_temps = temps.size();
-            bar.set_progress(static_cast<size_t>(global_progress));
-
-            // Optionally, show the current temperature in the postfix text
-            // (Note that local_temps[i] may differ across processes at any given time.)
-            bar.set_option(indicators::option::PostfixText{
-                "Rank " + std::to_string(rank) +
-                " processing T=" + T_str + "..."});
+        // Update global progress counter
+        #pragma omp critical
+        {
+            int one = 1;
+            MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
+            MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
+            MPI_Win_unlock(0, win);
         }
-    } 
+
+        // Update progress bar on rank 0
+        if (rank == 0 && omp_get_thread_num() == 0) {
+            static int update_count = 0;
+            if (++update_count % 5 == 0) {
+                MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
+                int current_total = *global_counter;
+                MPI_Win_unlock(0, win);
+                bar.set_progress(current_total);
+            }
+        }
+    }
+
+    // Final update to ensure completion
+    if (rank == 0) {
+        MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
+        bar.set_progress(*global_counter);
+        MPI_Win_unlock(0, win);
+        bar.mark_as_completed();
+    }
+
+    // Cleanup MPI window
+    MPI_Win_free(&win);
+    if (rank == 0) {
+        MPI_Free_mem(global_counter);
+    }
+
     return local_results;
-
 }
-
 Results Ising2D::get_results() const {
     Results res;
     res.binder = m_binder;
