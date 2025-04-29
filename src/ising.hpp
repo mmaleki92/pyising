@@ -1,5 +1,5 @@
 #pragma once
-
+#include <string>
 #include <vector>
 #include <random>
 #include <chrono>
@@ -26,13 +26,13 @@ struct Results {
     std::map<std::string, std::string> metadata;  // Store parameters, versions, etc
     std::chrono::duration<double> runtime;       // Execution time
     std::vector<double> timing_per_step;         // Per-step timing
-
 };
 
 std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps, int L, int N_steps,
-    unsigned int seed_base, const std::string& output_dir,
-    bool use_wolff, bool save_all_configs );
+    int equ_N, int snapshot_interval, unsigned int seed_base,
+    const std::string& output_dir, bool use_wolff,
+    bool save_all_configs);
 
 
 class Ising2D
@@ -42,8 +42,8 @@ public:
     // Public API
     void initialize_spins();
     void compute_neighbors();
-    void do_step_metropolis(double tstar, int N);
-    void do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank); 
+    void do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval);
+    void do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank);
     void do_step_wolff(double tstar, int N);
 
     double compute_energy();

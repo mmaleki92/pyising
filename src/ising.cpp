@@ -22,17 +22,39 @@ std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
     int N_steps,
+    int equ_N,
+    int snapshot_interval,
     unsigned int seed_base,
     const std::string& output_dir,
     bool use_wolff,
     bool save_all_configs
 ) {
     int rank, size;
+    // Distribute temperatures among ranks
+    int num_temps = static_cast<int>(temps.size());
+    // Setup a single progress bar only on rank 0
+    indicators::ProgressBar bar;
+    bar.set_option(indicators::option::BarWidth{50});
+    bar.set_option(indicators::option::Start{"["});
+    bar.set_option(indicators::option::Fill{"="});
+    bar.set_option(indicators::option::Lead{">"});
+    bar.set_option(indicators::option::Remainder{" "});
+    bar.set_option(indicators::option::End{"]"});
+    bar.set_option(indicators::option::PostfixText{"Running simulations..."});
+    bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
+    bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{
+        indicators::FontStyle::bold
+    }});
+    bar.set_option(indicators::option::ShowElapsedTime{true});
+    bar.set_option(indicators::option::ShowRemainingTime{true});
+    bar.set_option(indicators::option::MaxProgress{
+    static_cast<size_t>(num_temps) // One increment per temperature
+    });
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // Distribute temperatures among ranks
-    int num_temps = static_cast<int>(temps.size());
+
     int base_local_num = num_temps / size;
     int remainder = num_temps % size;
     int start = rank * base_local_num + std::min(rank, remainder);
@@ -57,26 +79,6 @@ std::vector<Results> run_parallel_metropolis(
         MPI_Win_create(nullptr, 0, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     }
 
-    // Setup a single progress bar only on rank 0
-    indicators::ProgressBar bar;
-    if (rank == 0) {
-        bar.set_option(indicators::option::BarWidth{50});
-        bar.set_option(indicators::option::Start{"["});
-        bar.set_option(indicators::option::Fill{"="});
-        bar.set_option(indicators::option::Lead{">"});
-        bar.set_option(indicators::option::Remainder{" "});
-        bar.set_option(indicators::option::End{"]"});
-        bar.set_option(indicators::option::PostfixText{"Running simulations..."});
-        bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
-        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{
-            indicators::FontStyle::bold
-        }});
-        bar.set_option(indicators::option::ShowElapsedTime{true});
-        bar.set_option(indicators::option::ShowRemainingTime{true});
-        bar.set_option(indicators::option::MaxProgress{
-            static_cast<size_t>(num_temps) // One increment per temperature
-        });
-    }
 
     // Parallel loop for each temperature in local_temps
     #pragma omp parallel for
@@ -94,7 +96,7 @@ std::vector<Results> run_parallel_metropolis(
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps);
         } else {
-            model.do_step_metropolis(local_temps[i], N_steps);
+            model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
         }
 
         // Store and label results
@@ -132,20 +134,20 @@ std::vector<Results> run_parallel_metropolis(
                         flattened.data(),
                         {all_configs.size(), static_cast<size_t>(L), static_cast<size_t>(L)},
                         "w"
-                    );
+                        );
                 }
             }
         } else {
             std::string filename = T_dir + "/config.npy";
             const auto& config = local_results[i].configuration;
             #pragma omp critical
-            { 
+            {
             cnpy::npy_save(
                 filename,
                 config.data(),
                 {static_cast<size_t>(L), static_cast<size_t>(L)},
                 "w"
-            );
+                );
         }
         }
 
@@ -361,11 +363,11 @@ void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
 
-void Ising2D::do_step_metropolis(double tstar, int N) {
+void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval) {
     compute_metropolis_factors(tstar);
 
     // Thermalization
-    for (int i = 0; i < 1100; ++i) {
+    for (int i = 0; i < equ_N; ++i) {
         metropolis_flip_spin(tstar);
     }
 
@@ -389,7 +391,7 @@ void Ising2D::do_step_metropolis(double tstar, int N) {
         ene4_sum += ene * ene * ene * ene;
 
         // Save current configuration if enabled
-        if (m_save_all_configs) {
+        if (m_save_all_configs && i % snapshot_interval == 0) {
             m_all_configs.push_back(get_configuration());
         }
     }

@@ -43,6 +43,8 @@ PYBIND11_MODULE(_pyising, m) {
             py::arg("temps"),
             py::arg("L"),
             py::arg("N_steps"),
+            py::arg("equ_N"),
+            py::arg("snapshot_interval"),
             py::arg("seed_base"),
             py::arg("output_dir"),
             py::arg("use_wolff"),

@@ -7,11 +7,13 @@ size = comm.Get_size()
 import pyising
 import numpy as np
 
-temps = np.linspace(1, 4, 100)
+temps = np.linspace(1, 4, 50)
 
-L = 1000
-results = pyising.run_parallel_metropolis(temps, L, N_steps=100000,
-                                                   seed_base=42,
-                                                   output_dir="simultion",
-                                                    use_wolff=False, 
-                                                    save_all_configs=True)
+L = 64
+results = pyising.run_parallel_metropolis(temps, L, N_steps=10000,
+                                                equ_N=1000,
+                                                snapshot_interval=100,
+                                                seed_base=42,
+                                                output_dir="simultion",
+                                                use_wolff=False, 
+                                                save_all_configs=True)
