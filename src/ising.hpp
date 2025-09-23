@@ -21,7 +21,8 @@ struct Results {
     int L;
 
     std::vector<int> configuration;
-    std::vector<std::vector<int>> all_configurations;
+    // We won't store all configurations in memory anymore
+    // std::vector<std::vector<int>> all_configurations;
 
     std::map<std::string, std::string> metadata;  // Store parameters, versions, etc
     std::chrono::duration<double> runtime;       // Execution time
@@ -71,6 +72,11 @@ public:
 
     Results get_results() const;
     void enable_save_all_configs(bool enable);
+    
+    // New methods for direct config saving
+    void set_config_save_path(const std::string& path);
+    void set_snapshot_interval(int interval);
+    void save_current_config(int step_number);
 
 private:
     // Internal methods
@@ -94,14 +100,14 @@ private:
     double m_energy;
     std::vector<double> m_h;
 
-
-
     // Measurement buffers
     double m_meanMag, m_meanMag2, m_meanMag4;
     double m_meanEne, m_meanEne2, m_meanEne4;
     double m_binder;
     bool m_save_all_configs;
-    std::vector<std::vector<int>> m_all_configs;
+    int m_snapshot_count;
+    int m_snapshot_interval;
+    std::string m_config_save_path;
 
     // Optimized methods
     inline int spin_val(char s) const { return s; }
@@ -109,5 +115,4 @@ private:
     void wolff_cluster_update(double p);
     void compute_metropolis_factors(double tstar);
     inline int wrap(int coord) const { return (coord + m_L) % m_L; }
-
 };

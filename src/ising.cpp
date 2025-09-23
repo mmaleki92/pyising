@@ -101,21 +101,8 @@ std::vector<Results> run_parallel_metropolis(
         Ising2D model(L, seed);
         model.initialize_spins();
         model.compute_neighbors();
-        model.enable_save_all_configs(save_all_configs);
-
-        // Perform the simulation
-        if (use_wolff) {
-            model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
-        } else {
-            model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
-        }
-
-        // Store and label results
-        local_results[i] = model.get_results();
-        local_results[i].T = local_temps[i];
-        local_results[i].L = L;
-
-        // Save configurations if requested
+        
+        // Format the temperature string for directory naming
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << local_temps[i];
         std::string T_str = ss.str();
@@ -128,38 +115,35 @@ std::vector<Results> run_parallel_metropolis(
             std::filesystem::create_directories(T_dir);
         }
 
-        // Save all configurations or just one
+        // If using save_all_configs, tell the model where to save the configs
         if (save_all_configs) {
-            std::string all_filename = T_dir + "/all_configs.npy";
-            const auto& all_configs = local_results[i].all_configurations;
-            if (!all_configs.empty()) {
-                std::vector<int> flattened;
-                flattened.reserve(all_configs.size() * L * L);
-                for (const auto& config : all_configs) {
-                    flattened.insert(flattened.end(), config.begin(), config.end());
-                }
-                #pragma omp critical
-                {
-                    cnpy::npy_save(
-                        all_filename,
-                        flattened.data(),
-                        {all_configs.size(), static_cast<size_t>(L), static_cast<size_t>(L)},
-                        "w"
-                        );
-                }
-            }
+            model.set_config_save_path(T_dir);
+            model.set_snapshot_interval(snapshot_interval);
+        }
+        
+        // Perform the simulation
+        if (use_wolff) {
+            model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
         } else {
-            std::string filename = T_dir + "/config.npy";
-            const auto& config = local_results[i].configuration;
-            #pragma omp critical
-            {
+            model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
+        }
+
+        // Store and label results
+        local_results[i] = model.get_results();
+        local_results[i].T = local_temps[i];
+        local_results[i].L = L;
+
+        // Save final configuration
+        std::string filename = T_dir + "/final_config.npy";
+        const auto& config = local_results[i].configuration;
+        #pragma omp critical
+        {
             cnpy::npy_save(
                 filename,
                 config.data(),
                 {static_cast<size_t>(L), static_cast<size_t>(L)},
                 "w"
-                );
-        }
+            );
         }
 
         // Once this temperature is done, increment the global counter
@@ -210,7 +194,7 @@ Results Ising2D::get_results() const {
     res.meanEne2 = m_meanEne2;
     res.meanEne4 = m_meanEne4;
     res.configuration = get_configuration();
-    res.all_configurations = m_all_configs;
+    // We don't include all_configurations anymore to save memory
     res.L = m_L;
     return res;
 }
@@ -245,7 +229,9 @@ Ising2D::Ising2D(int L, unsigned int seed)
     : m_L(L), m_SIZE(L*L),
       m_gen(seed), m_ran_pos(0, L*L-1), m_ran_u(0.0, 1.0),
       m_spins(L*L, 1), m_neighbors(4*L*L, 0),
-      m_energy(0.0), m_save_all_configs(false) {}
+      m_energy(0.0), m_save_all_configs(false),
+      m_snapshot_count(0), m_snapshot_interval(100),
+      m_config_save_path("") {}
 
 
 void Ising2D::initialize_spins() {
@@ -255,6 +241,7 @@ void Ising2D::initialize_spins() {
     }
     compute_neighbors();
     m_energy = compute_energy();
+    m_snapshot_count = 0;
 }
 
 
@@ -308,6 +295,32 @@ void Ising2D::metropolis_flip_spin(double tstar) {
     }
 }
 
+void Ising2D::save_current_config(int step_number) {
+    if (m_config_save_path.empty()) return;
+    
+    std::string filename = m_config_save_path + "/step_" + std::to_string(step_number) + ".npy";
+    auto config = get_configuration();
+    
+    cnpy::npy_save(
+        filename,
+        config.data(),
+        {static_cast<size_t>(m_L), static_cast<size_t>(m_L)},
+        "w"
+    );
+}
+
+void Ising2D::set_config_save_path(const std::string& path) {
+    m_config_save_path = path;
+    // Create a snapshots subdirectory
+    std::string snapshot_dir = path + "/snapshots";
+    std::filesystem::create_directories(snapshot_dir);
+    m_config_save_path = snapshot_dir;
+}
+
+void Ising2D::set_snapshot_interval(int interval) {
+    m_snapshot_interval = interval;
+}
+
 void Ising2D::measure_observables(double N) {
     double mag    = std::fabs(magnetization());
     double mag2   = mag * mag;
@@ -321,9 +334,13 @@ void Ising2D::measure_observables(double N) {
     m_meanEne  += ene;
     m_meanEne2 += ene2;
     m_meanEne4 += (ene2 * ene2);
-    if (m_save_all_configs) {
-            m_all_configs.push_back(get_configuration());
+    
+    // Save configuration directly if path is set and interval is reached
+    if (m_save_all_configs && !m_config_save_path.empty() && 
+        (m_snapshot_count % m_snapshot_interval == 0)) {
+        save_current_config(m_snapshot_count);
     }
+    m_snapshot_count++;
 }
 
 void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
@@ -355,6 +372,11 @@ void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
+        // Save configuration directly if needed
+        if (m_save_all_configs && !m_config_save_path.empty() && (i % m_snapshot_interval == 0)) {
+            save_current_config(i);
+        }
+
         // Update progress after each 1000 measurements
         if ((i + 1) % 1000 == 0) {
             int one = 1;
@@ -376,6 +398,7 @@ void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
 
 void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval) {
     compute_metropolis_factors(tstar);
+    m_snapshot_count = 0;
 
     // Thermalization
     for (int i = 0; i < equ_N; ++i) {
@@ -401,10 +424,11 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
-        // Save current configuration if enabled
-        if (m_save_all_configs && i % snapshot_interval == 0) {
-            m_all_configs.push_back(get_configuration());
+        // Save configuration directly if enabled
+        if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
+            save_current_config(i);
         }
+        m_snapshot_count = i;
     }
 
     // Store results
@@ -460,8 +484,10 @@ void Ising2D::wolff_cluster_update(double p) {
 
     m_energy += delta_energy;  // Correctly update energy
 }
-void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval = 1) {
+
+void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
     const double p = 1.0 - std::exp(-2.0 / tstar);
+    m_snapshot_count = 0;
 
     // Thermalize with periodic energy recalibration
     thermalize_wolff(tstar);
@@ -491,9 +517,11 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval = 1) {
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
-        if (m_save_all_configs && i % snapshot_interval == 0) {
-            m_all_configs.push_back(get_configuration());
+        // Save configuration directly if enabled
+        if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
+            save_current_config(i);
         }
+        m_snapshot_count = i;
     }
 
     // Normalize results
@@ -505,6 +533,7 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval = 1) {
     m_meanEne4 = ene4_sum / N;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 }
+
 void Ising2D::enable_save_all_configs(bool enable) {
     m_save_all_configs = enable;
 }
