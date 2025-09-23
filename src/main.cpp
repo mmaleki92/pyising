@@ -24,7 +24,7 @@ int main()
     model.initialize_spins();
     model.compute_neighbors();
     model.compute_energy(); // reset internal energy
-    model.do_step_wolff(tstar, N);
+    model.do_step_wolff(tstar, N, 100);
     std::cout << "\nWolff results:\n";
     std::cout << "Mean Magnetization = " << model.get_magnetization() << "\n";
     std::cout << "Mean Energy       = " << model.get_energy_mean() << "\n";

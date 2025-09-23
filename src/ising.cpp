@@ -29,7 +29,20 @@ std::vector<Results> run_parallel_metropolis(
     bool use_wolff,
     bool save_all_configs
 ) {
+
+    int initialized;
+    MPI_Initialized(&initialized);
+    if (!initialized) {
+        // MPI not initialized, initialize it with thread support
+        int provided;
+        MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &provided);
+    }
+
     int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+
     // Distribute temperatures among ranks
     int num_temps = static_cast<int>(temps.size());
     // Setup a single progress bar only on rank 0
@@ -51,8 +64,6 @@ std::vector<Results> run_parallel_metropolis(
     static_cast<size_t>(num_temps) // One increment per temperature
     });
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
 
     int base_local_num = num_temps / size;
@@ -94,7 +105,7 @@ std::vector<Results> run_parallel_metropolis(
 
         // Perform the simulation
         if (use_wolff) {
-            model.do_step_wolff(local_temps[i], N_steps);
+            model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
         } else {
             model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
         }
@@ -449,7 +460,7 @@ void Ising2D::wolff_cluster_update(double p) {
 
     m_energy += delta_energy;  // Correctly update energy
 }
-void Ising2D::do_step_wolff(double tstar, int N) {
+void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval = 1) {
     const double p = 1.0 - std::exp(-2.0 / tstar);
 
     // Thermalize with periodic energy recalibration
@@ -480,7 +491,7 @@ void Ising2D::do_step_wolff(double tstar, int N) {
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
-        if (m_save_all_configs) {
+        if (m_save_all_configs && i % snapshot_interval == 0) {
             m_all_configs.push_back(get_configuration());
         }
     }

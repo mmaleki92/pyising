@@ -44,7 +44,7 @@ public:
     void compute_neighbors();
     void do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval);
     void do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank);
-    void do_step_wolff(double tstar, int N);
+    void do_step_wolff(double tstar, int N, int snapshot_interval);
 
     double compute_energy();
     double magnetization() const;

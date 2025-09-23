@@ -15,6 +15,11 @@ PyIsing is a Python library for simulating the Ising model using C++ bindings vi
 pip install pyising
 ```
 
+for buliding from scratch
+
+```bash
+pythin setup.py install
+```
 ## usage
 ```python
 import pyising
