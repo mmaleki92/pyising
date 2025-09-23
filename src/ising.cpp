@@ -18,6 +18,7 @@
 #define LEFT  2
 #define DOWN  3
 
+
 std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
@@ -47,24 +48,24 @@ std::vector<Results> run_parallel_metropolis(
     int num_temps = static_cast<int>(temps.size());
     // Setup a single progress bar only on rank 0
     indicators::ProgressBar bar;
-    bar.set_option(indicators::option::BarWidth{50});
-    bar.set_option(indicators::option::Start{"["});
-    bar.set_option(indicators::option::Fill{"="});
-    bar.set_option(indicators::option::Lead{">"});
-    bar.set_option(indicators::option::Remainder{" "});
-    bar.set_option(indicators::option::End{"]"});
-    bar.set_option(indicators::option::PostfixText{"Running simulations..."});
-    bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
-    bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{
-        indicators::FontStyle::bold
-    }});
-    bar.set_option(indicators::option::ShowElapsedTime{true});
-    bar.set_option(indicators::option::ShowRemainingTime{true});
-    bar.set_option(indicators::option::MaxProgress{
-    static_cast<size_t>(num_temps) // One increment per temperature
-    });
-
-
+    if (rank == 0) {
+        bar.set_option(indicators::option::BarWidth{50});
+        bar.set_option(indicators::option::Start{"["});
+        bar.set_option(indicators::option::Fill{"="});
+        bar.set_option(indicators::option::Lead{">"});
+        bar.set_option(indicators::option::Remainder{" "});
+        bar.set_option(indicators::option::End{"]"});
+        bar.set_option(indicators::option::PostfixText{"Running simulations..."});
+        bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
+        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{
+            indicators::FontStyle::bold
+        }});
+        bar.set_option(indicators::option::ShowElapsedTime{true});
+        bar.set_option(indicators::option::ShowRemainingTime{true});
+        bar.set_option(indicators::option::MaxProgress{
+            static_cast<size_t>(num_temps) // One increment per temperature
+        });
+    }
 
     int base_local_num = num_temps / size;
     int remainder = num_temps % size;
@@ -119,6 +120,7 @@ std::vector<Results> run_parallel_metropolis(
         if (save_all_configs) {
             model.set_config_save_path(T_dir);
             model.set_snapshot_interval(snapshot_interval);
+            model.enable_save_all_configs(true);  // Explicitly enable config saving
         }
         
         // Perform the simulation
@@ -128,14 +130,14 @@ std::vector<Results> run_parallel_metropolis(
             model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
         }
 
-        // Store and label results
+        // Store and label results - but don't store full configurations in memory
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
         local_results[i].L = L;
 
-        // Save final configuration
+        // Save final configuration to a separate file
         std::string filename = T_dir + "/final_config.npy";
-        const auto& config = local_results[i].configuration;
+        const auto& config = model.get_configuration();  // Get the current configuration
         #pragma omp critical
         {
             cnpy::npy_save(
@@ -177,7 +179,7 @@ std::vector<Results> run_parallel_metropolis(
 
     // Clean up the MPI window
     MPI_Win_free(&win);
-    if (rank == 0) {
+    if (rank == 0 && global_counter != nullptr) {
         MPI_Free_mem(global_counter);
     }
 
@@ -193,8 +195,7 @@ Results Ising2D::get_results() const {
     res.meanEne = m_meanEne;
     res.meanEne2 = m_meanEne2;
     res.meanEne4 = m_meanEne4;
-    res.configuration = get_configuration();
-    // We don't include all_configurations anymore to save memory
+    res.configuration = get_configuration();  // Only return the current configuration
     res.L = m_L;
     return res;
 }
