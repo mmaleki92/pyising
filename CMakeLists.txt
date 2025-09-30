@@ -5,6 +5,38 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+
+# ====================================================================
+# Safeguard to ensure the correct Conda compiler is being used.
+# This prevents difficult-to-debug runtime library mismatch errors.
+# ====================================================================
+if(DEFINED ENV{CONDA_PREFIX})
+    # We are inside a Conda environment. Let's check the compiler.
+    string(FIND "${CMAKE_CXX_COMPILER}" "$ENV{CONDA_PREFIX}" IS_CONDA_COMPILER)
+
+    if(IS_CONDA_COMPILER EQUAL -1)
+        # The found compiler is NOT inside the Conda environment path.
+        message(FATAL_ERROR "
+        #####################################################################
+        # ERROR: Incorrect C++ compiler detected!                           #
+        #####################################################################
+        You are in a Conda environment, but CMake is using the system's
+        C++ compiler:
+          ${CMAKE_CXX_COMPILER}
+
+        This will lead to a GLIBCXX ImportError at runtime.
+
+        To fix this, please re-run the installation command specifying
+        the correct Conda compilers, for example:
+
+        CXX=x86_64-conda-linux-gnu-g++ CC=x86_64-conda-linux-gnu-gcc pip install .
+
+        #####################################################################
+        ")
+    endif()
+endif()
+# ====================================================================
+
 # Prevent in-source builds (optional)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
     message(FATAL_ERROR "Please build in a separate directory.")
