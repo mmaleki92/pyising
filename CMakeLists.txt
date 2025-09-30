@@ -88,6 +88,7 @@ target_link_libraries(ising PUBLIC
     indicators
     OpenMP::OpenMP_CXX
     MPI::MPI_CXX
+    pybind11::headers
 )
 
 # Build the Python module using pybind11 (MPI version)
