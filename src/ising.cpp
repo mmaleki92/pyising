@@ -18,7 +18,7 @@
 #define LEFT  2
 #define DOWN  3
 
-std::vector<Results> run_parallel_metropolis(
+py::list run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
     int N_steps,
@@ -29,25 +29,24 @@ std::vector<Results> run_parallel_metropolis(
     bool use_wolff,
     bool save_all_configs
 ) {
-    // DO NOT initialize MPI here. Assume it's already been done by the caller (mpi4py).
-    /*
-    int initialized;
-    MPI_Initialized(&initialized);
-    if (!initialized) {
-        // MPI not initialized, initialize it with thread support
-        int provided;
-        MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &provided);
-    }
-    */
-
-    // Directly get rank and size, assuming a valid MPI environment exists.
+    // MPI rank and size setup
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-
     // Distribute temperatures among ranks
     int num_temps = static_cast<int>(temps.size());
+    int base_local_num = num_temps / size;
+    int remainder = num_temps % size;
+    int start = rank * base_local_num + std::min(rank, remainder);
+    int local_num = base_local_num + (rank < remainder ? 1 : 0);
+    int end = start + local_num;
+
+    std::vector<double> local_temps(temps.begin() + start, temps.begin() + end);
+
+    // **NEW**: This will hold our results as a Python list of dictionaries
+    py::list local_results_list;
+
     // Setup a single progress bar only on rank 0
     indicators::ProgressBar bar;
     if (rank == 0) {
@@ -59,31 +58,18 @@ std::vector<Results> run_parallel_metropolis(
         bar.set_option(indicators::option::End{"]"});
         bar.set_option(indicators::option::PostfixText{"Running simulations..."});
         bar.set_option(indicators::option::ForegroundColor{indicators::Color::yellow});
-        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{
-            indicators::FontStyle::bold
-        }});
+        bar.set_option(indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}});
         bar.set_option(indicators::option::ShowElapsedTime{true});
         bar.set_option(indicators::option::ShowRemainingTime{true});
-        bar.set_option(indicators::option::MaxProgress{
-            static_cast<size_t>(num_temps) // One increment per temperature
-        });
+        bar.set_option(indicators::option::MaxProgress{static_cast<size_t>(num_temps)});
     }
-
-    int base_local_num = num_temps / size;
-    int remainder = num_temps % size;
-    int start = rank * base_local_num + std::min(rank, remainder);
-    int local_num = base_local_num + (rank < remainder ? 1 : 0);
-    int end = start + local_num;
-
-    std::vector<double> local_temps(temps.begin() + start, temps.begin() + end);
-    std::vector<Results> local_results(local_temps.size());
 
     // Create directory for the current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
-    if (rank == 0) { // Only rank 0 needs to create the main directory
+    if (rank == 0) {
         std::filesystem::create_directories(L_dir);
     }
-    MPI_Barrier(MPI_COMM_WORLD); // Ensure directory exists before proceeding
+    MPI_Barrier(MPI_COMM_WORLD);
 
     // Create an MPI window for a global progress counter
     MPI_Win win;
@@ -96,71 +82,65 @@ std::vector<Results> run_parallel_metropolis(
         MPI_Win_create(nullptr, 0, sizeof(int), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     }
 
-
-    // Parallel loop for each temperature in local_temps
+    // Parallel loop for each temperature assigned to this rank
     #pragma omp parallel for
     for (size_t i = 0; i < local_temps.size(); ++i) {
-        // Generate a unique seed per temperature
         unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
-
-        // Setup Ising model
         Ising2D model(L, seed);
         model.initialize_spins();
-        model.compute_neighbors();
         
-        // Format the temperature string for directory naming
         std::stringstream ss;
         ss << std::fixed << std::setprecision(3) << local_temps[i];
         std::string T_str = ss.str();
-        std::string T_dir;
-
-        // Creating the temperature directory
-        T_dir = L_dir + "/T_" + T_str;
-        // No need for a critical section if each thread/rank works on a unique temperature
-        std::filesystem::create_directories(T_dir);
-
-        // If using save_all_configs, tell the model where to save the configs
+        std::string T_dir = L_dir + "/T_" + T_str;
+        
         if (save_all_configs) {
+            std::filesystem::create_directories(T_dir);
             model.set_config_save_path(T_dir);
-            model.set_snapshot_interval(snapshot_interval);
-            model.enable_save_all_configs(true);  // Explicitly enable config saving
+            model.enable_save_all_configs(true);
         }
         
-        // Perform the simulation
         if (use_wolff) {
             model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
         } else {
             model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
         }
 
-        // Store and label results - but don't store full configurations in memory
-        local_results[i] = model.get_results();
-        local_results[i].T = local_temps[i];
-        local_results[i].L = L;
+        Results res = model.get_results();
 
-        // Save final configuration to a separate file
-        std::string filename = T_dir + "/final_config.npy";
-        const auto& config = model.get_configuration();  // Get the current configuration
+        // Create a Python dictionary to hold the scalar results (becasue of the pickling problem while pickling in the pytohn side)
+        py::dict result_dict;
+        result_dict["T"] = local_temps[i];
+        result_dict["L"] = L;
+        result_dict["mean_mag"] = res.meanMag;
+        result_dict["mean_ene"] = res.meanEne;
+        result_dict["binder"] = res.binder;
+        
+        #pragma omp critical
+        {
+            local_results_list.append(result_dict);
+        }
+
+        std::string final_config_filename = T_dir + "/final_config.npy";
+        const auto& config = model.get_configuration();
         #pragma omp critical
         {
             cnpy::npy_save(
-                filename,
+                final_config_filename,
                 config.data(),
                 {static_cast<size_t>(L), static_cast<size_t>(L)},
                 "w"
             );
         }
 
-        // Once this temperature is done, increment the global counter
+        // Increment the global progress counter on rank 0
         int one = 1;
         MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
         MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
         MPI_Win_unlock(0, win);
 
         // Update the single progress bar (only rank 0, one thread)
-        // This check prevents multiple threads on rank 0 from updating the bar concurrently
         if (rank == 0 && omp_get_thread_num() == 0) {
-            // A small delay to allow accumulate to complete, though lock/unlock should suffice
             MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
             int current_total = *global_counter;
             MPI_Win_unlock(0, win);
@@ -168,7 +148,6 @@ std::vector<Results> run_parallel_metropolis(
         }
     }
 
-    // Synchronize all MPI processes to ensure file I/O is complete
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Final update to ensure the bar is complete
@@ -183,9 +162,8 @@ std::vector<Results> run_parallel_metropolis(
         MPI_Free_mem(global_counter);
     }
 
-    // You should NOT call MPI_Finalize here. mpi4py will handle it when the script ends.
-
-    return local_results;
+    // Return the pickle-friendly list of dictionaries
+    return local_results_list;
 }
 
 Results Ising2D::get_results() const {
