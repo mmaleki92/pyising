@@ -18,7 +18,6 @@
 #define LEFT  2
 #define DOWN  3
 
-
 std::vector<Results> run_parallel_metropolis(
     const std::vector<double>& temps,
     int L,
@@ -30,7 +29,8 @@ std::vector<Results> run_parallel_metropolis(
     bool use_wolff,
     bool save_all_configs
 ) {
-
+    // DO NOT initialize MPI here. Assume it's already been done by the caller (mpi4py).
+    /*
     int initialized;
     MPI_Initialized(&initialized);
     if (!initialized) {
@@ -38,7 +38,9 @@ std::vector<Results> run_parallel_metropolis(
         int provided;
         MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &provided);
     }
+    */
 
+    // Directly get rank and size, assuming a valid MPI environment exists.
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -78,7 +80,10 @@ std::vector<Results> run_parallel_metropolis(
 
     // Create directory for the current L
     std::string L_dir = output_dir + "/L_" + std::to_string(L);
-    std::filesystem::create_directories(L_dir);
+    if (rank == 0) { // Only rank 0 needs to create the main directory
+        std::filesystem::create_directories(L_dir);
+    }
+    MPI_Barrier(MPI_COMM_WORLD); // Ensure directory exists before proceeding
 
     // Create an MPI window for a global progress counter
     MPI_Win win;
@@ -86,9 +91,9 @@ std::vector<Results> run_parallel_metropolis(
     if (rank == 0) {
         MPI_Alloc_mem(sizeof(int), MPI_INFO_NULL, &global_counter);
         *global_counter = 0;
-        MPI_Win_create(global_counter, sizeof(int), 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+        MPI_Win_create(global_counter, sizeof(int), sizeof(int), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     } else {
-        MPI_Win_create(nullptr, 0, 1, MPI_INFO_NULL, MPI_COMM_WORLD, &win);
+        MPI_Win_create(nullptr, 0, sizeof(int), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     }
 
 
@@ -109,12 +114,10 @@ std::vector<Results> run_parallel_metropolis(
         std::string T_str = ss.str();
         std::string T_dir;
 
-        // Creating the temperature directory in a critical section to avoid race conditions
-        #pragma omp critical
-        {
-            T_dir = L_dir + "/T_" + T_str;
-            std::filesystem::create_directories(T_dir);
-        }
+        // Creating the temperature directory
+        T_dir = L_dir + "/T_" + T_str;
+        // No need for a critical section if each thread/rank works on a unique temperature
+        std::filesystem::create_directories(T_dir);
 
         // If using save_all_configs, tell the model where to save the configs
         if (save_all_configs) {
@@ -149,16 +152,15 @@ std::vector<Results> run_parallel_metropolis(
         }
 
         // Once this temperature is done, increment the global counter
-        #pragma omp critical
-        {
-            int one = 1;
-            MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
-            MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
-            MPI_Win_unlock(0, win);
-        }
+        int one = 1;
+        MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
+        MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
+        MPI_Win_unlock(0, win);
 
         // Update the single progress bar (only rank 0, one thread)
+        // This check prevents multiple threads on rank 0 from updating the bar concurrently
         if (rank == 0 && omp_get_thread_num() == 0) {
+            // A small delay to allow accumulate to complete, though lock/unlock should suffice
             MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
             int current_total = *global_counter;
             MPI_Win_unlock(0, win);
@@ -171,9 +173,7 @@ std::vector<Results> run_parallel_metropolis(
 
     // Final update to ensure the bar is complete
     if (rank == 0) {
-        MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
-        bar.set_progress(*global_counter);
-        MPI_Win_unlock(0, win);
+        bar.set_progress(num_temps);
         bar.mark_as_completed();
     }
 
@@ -182,6 +182,8 @@ std::vector<Results> run_parallel_metropolis(
     if (rank == 0 && global_counter != nullptr) {
         MPI_Free_mem(global_counter);
     }
+
+    // You should NOT call MPI_Finalize here. mpi4py will handle it when the script ends.
 
     return local_results;
 }
