@@ -3,3 +3,4 @@ _skbuild
 dist/*
 .vscode/*
 pyising.egg-info/*
+examples/simulation/*
