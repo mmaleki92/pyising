@@ -20,15 +20,16 @@ comm.Barrier()  # Make sure directory exists before all ranks proceed
 # Configure your simulation parameters
 temps = np.linspace(1, 4, 50)
 L = 128
-N_steps = 10000
-equ_N = 1000
-snapshot_interval = 100
+N_steps = 1000000
+equ_N = 10000
+snapshot_interval = 1000
 seed_base = 42
 use_wolff = False
 save_all_configs = True
 
-print(f"Rank {rank}: Starting simulation with L={L}, {len(temps)} temperatures")
-start_time = time.time()
+if rank == 0:
+    print(f"Rank {rank}: Starting simulation with L={L}, {len(temps)} temperatures")
+    start_time = time.time()
 
 # Run the parallel simulation
 # This returns a list of dictionaries on each rank
@@ -42,8 +43,9 @@ local_results = pyising.run_parallel_metropolis(
     save_all_configs=save_all_configs
 )
 
-end_time = time.time()
-print(f"Rank {rank}: Finished simulation in {end_time - start_time:.2f} seconds")
+if rank == 0:
+    end_time = time.time()
+    print(f"Rank {rank}: Finished simulation in {end_time - start_time:.2f} seconds")
 
 # --- Data Aggregation and Processing (on Rank 0) ---
 # Gather results from all ranks to the root process (rank 0)
