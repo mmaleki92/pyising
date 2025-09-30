@@ -27,12 +27,15 @@ import pyising
 temps = np.linspace(1, 4, 50)
 
 L = 64
-results = pyising.run_parallel_metropolis(temps, L, N_steps=100000,
-                                                equ_N=10000,
-                                                seed_base=42,
-                                                output_dir="simultion",
-                                                use_wolff=False, 
-                                                save_all_configs=False)
+results = pyising.run_parallel_metropolis(temps, L, N_steps=N_steps,
+                                          equ_N=equ_N,
+                                          snapshot_interval=snapshot_interval,
+                                          seed_base=seed_base,
+                                          output_dir=output_dir,
+                                          use_wolff=use_wolff,
+                                          save_all_configs=save_all_configs
+                                          )
+
 ```
 
 
