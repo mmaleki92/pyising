@@ -97,8 +97,6 @@ std::vector<Results> run_simulation_cpp(
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
 
-        // *** CHANGE 1: The block saving "final_config.npy" has been removed from here. ***
-        // Snapshots are now saved only within the do_step_* methods.
 
         // Use 'critical' for thread-safe progress updates.
         #pragma omp critical (progress_update)
