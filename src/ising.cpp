@@ -1,22 +1,23 @@
-#include <omp.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <mpi.h>
-#include <stack>
-#include <string>
-#include <iostream>
+#include <omp.h>
 #include <vector>
+#include <string>
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
-
 #include "ising.hpp"
 #include "cnpy/cnpy.h"
-
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
+
 #define UP    0
 #define RIGHT 1
 #define LEFT  2
 #define DOWN  3
+
+namespace py = pybind11;
 
 py::list run_parallel_metropolis(
     const std::vector<double>& temps,

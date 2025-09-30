@@ -29,12 +29,6 @@ struct Results {
     std::vector<double> timing_per_step;         // Per-step timing
 };
 
-std::vector<Results> run_parallel_metropolis(
-    const std::vector<double>& temps, int L, int N_steps,
-    int equ_N, int snapshot_interval, unsigned int seed_base,
-    const std::string& output_dir, bool use_wolff,
-    bool save_all_configs);
-
 
 class Ising2D
 {
