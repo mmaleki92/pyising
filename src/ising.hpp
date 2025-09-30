@@ -7,6 +7,9 @@
 #include <pcg_random.hpp>
 #include <cmath>
 #include <mpi.h> 
+#include <pybind11/pybind11.h>
+
+namespace py = pybind11;
 
 struct Results {
     // Existing members
@@ -28,6 +31,13 @@ struct Results {
     std::chrono::duration<double> runtime;       // Execution time
     std::vector<double> timing_per_step;         // Per-step timing
 };
+
+
+py::list run_parallel_metropolis(
+    const std::vector<double>& temps, int L, int N_steps,
+    int equ_N, int snapshot_interval, unsigned int seed_base,
+    const std::string& output_dir, bool use_wolff,
+    bool save_all_configs);
 
 
 class Ising2D

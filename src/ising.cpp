@@ -1,4 +1,3 @@
-#include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <mpi.h>
 #include <omp.h>
@@ -17,7 +16,6 @@
 #define LEFT  2
 #define DOWN  3
 
-namespace py = pybind11;
 
 py::list run_parallel_metropolis(
     const std::vector<double>& temps,
@@ -42,11 +40,7 @@ py::list run_parallel_metropolis(
     int start = rank * base_local_num + std::min(rank, remainder);
     int local_num = base_local_num + (rank < remainder ? 1 : 0);
     int end = start + local_num;
-
     std::vector<double> local_temps(temps.begin() + start, temps.begin() + end);
-
-    // **NEW**: This will hold our results as a Python list of dictionaries
-    py::list local_results_list;
 
     // Setup a single progress bar only on rank 0
     indicators::ProgressBar bar;
@@ -83,7 +77,13 @@ py::list run_parallel_metropolis(
         MPI_Win_create(nullptr, 0, sizeof(int), MPI_INFO_NULL, MPI_COMM_WORLD, &win);
     }
 
-    // Parallel loop for each temperature assigned to this rank
+    // This C++ vector will hold the pure C++ results from the parallel section.
+    std::vector<Results> local_results(local_temps.size());
+
+    // ====================================================================
+    //  SECTION 1: PARALLEL COMPUTATION (PURE C++)
+    //  This loop is highly efficient as it contains no locks or Python API calls.
+    // ====================================================================
     #pragma omp parallel for
     for (size_t i = 0; i < local_temps.size(); ++i) {
         unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
@@ -107,20 +107,8 @@ py::list run_parallel_metropolis(
             model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
         }
 
-        Results res = model.get_results();
-
-        // Create a Python dictionary to hold the scalar results (becasue of the pickling problem while pickling in the pytohn side)
-        py::dict result_dict;
-        result_dict["T"] = local_temps[i];
-        result_dict["L"] = L;
-        result_dict["mean_mag"] = res.meanMag;
-        result_dict["mean_ene"] = res.meanEne;
-        result_dict["binder"] = res.binder;
-        
-        #pragma omp critical
-        {
-            local_results_list.append(result_dict);
-        }
+        local_results[i] = model.get_results();
+        local_results[i].T = local_temps[i];
 
         std::string final_config_filename = T_dir + "/final_config.npy";
         const auto& config = model.get_configuration();
@@ -134,13 +122,11 @@ py::list run_parallel_metropolis(
             );
         }
 
-        // Increment the global progress counter on rank 0
         int one = 1;
         MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
         MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
         MPI_Win_unlock(0, win);
 
-        // Update the single progress bar (only rank 0, one thread)
         if (rank == 0 && omp_get_thread_num() == 0) {
             MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
             int current_total = *global_counter;
@@ -151,20 +137,33 @@ py::list run_parallel_metropolis(
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // Final update to ensure the bar is complete
     if (rank == 0) {
         bar.set_progress(num_temps);
         bar.mark_as_completed();
     }
-
+    
+    // ====================================================================
+    //  SECTION 2: SERIAL CONVERSION (C++ to Python Types)
+    //  This fast, single-threaded loop converts the C++ results into a Python list.
+    // ====================================================================
+    py::list final_results_list;
+    for (const auto& res : local_results) {
+        py::dict result_dict;
+        result_dict["T"] = res.T;
+        result_dict["L"] = res.L;
+        result_dict["mean_mag"] = res.meanMag;
+        result_dict["mean_ene"] = res.meanEne;
+        result_dict["binder"] = res.binder;
+        final_results_list.append(result_dict);
+    }
+    
     // Clean up the MPI window
     MPI_Win_free(&win);
     if (rank == 0 && global_counter != nullptr) {
         MPI_Free_mem(global_counter);
     }
 
-    // Return the pickle-friendly list of dictionaries
-    return local_results_list;
+    return final_results_list;
 }
 
 Results Ising2D::get_results() const {
