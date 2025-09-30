@@ -71,54 +71,63 @@ std::vector<Results> run_simulation_cpp(
 
     std::vector<Results> local_results(local_temps.size());
 
-    #pragma omp parallel for
-    for (size_t i = 0; i < local_temps.size(); ++i) {
-        unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
-        Ising2D model(L, seed);
-        model.initialize_spins();
-        
-        std::stringstream ss;
-        ss << std::fixed << std::setprecision(3) << local_temps[i];
-        std::string T_str = ss.str();
-        std::string T_dir = L_dir + "/T_" + T_str;
-        
-        if (save_all_configs) {
-            std::filesystem::create_directories(T_dir);
-            model.set_config_save_path(T_dir);
-            model.enable_save_all_configs(true);
-        }
-        
-        if (use_wolff) {
-            model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
-        } else {
-            model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
+    // --- RESTRUCTURED PARALLEL REGION ---
+    #pragma omp parallel
+    {
+        // The master thread on rank 0 is the dedicated progress monitor.
+        #pragma omp master
+        if (rank == 0) {
+            // It polls the global counter until all simulations are done.
+            while (*global_counter < num_temps) {
+                // To avoid reading stale data, lock before reading.
+                MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
+                bar.set_progress(*global_counter);
+                MPI_Win_unlock(0, win);
+                // Sleep for a short duration to avoid spamming updates.
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
 
-        local_results[i] = model.get_results();
-        local_results[i].T = local_temps[i];
+        // All threads (including the master on rank 0) participate in the work.
+        // The '#pragma omp for' distributes the loop iterations among the threads.
+        #pragma omp for
+        for (size_t i = 0; i < local_temps.size(); ++i) {
+            unsigned int seed = seed_base + static_cast<unsigned int>(start + i);
+            Ising2D model(L, seed);
+            model.initialize_spins();
+            
+            std::stringstream ss;
+            ss << std::fixed << std::setprecision(3) << local_temps[i];
+            std::string T_str = ss.str();
+            std::string T_dir = L_dir + "/T_" + T_str;
+            
+            if (save_all_configs) {
+                std::filesystem::create_directories(T_dir);
+                model.set_config_save_path(T_dir);
+                model.enable_save_all_configs(true);
+            }
+            
+            if (use_wolff) {
+                model.do_step_wolff(local_temps[i], N_steps, snapshot_interval);
+            } else {
+                model.do_step_metropolis(local_temps[i], N_steps, equ_N, snapshot_interval);
+            }
 
+            local_results[i] = model.get_results();
+            local_results[i].T = local_temps[i];
 
-        // Use 'critical' for thread-safe progress updates.
-        #pragma omp critical (progress_update)
-        {
+            // Safely update the global counter on rank 0.
             int one = 1;
             MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
             MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
             MPI_Win_unlock(0, win);
-
-            if (rank == 0) {
-                MPI_Win_lock(MPI_LOCK_SHARED, 0, 0, win);
-                int current_total = *global_counter;
-                MPI_Win_unlock(0, win);
-                bar.set_progress(current_total);
-            }
         }
-    }
+    } 
 
     MPI_Barrier(MPI_COMM_WORLD);
 
     if (rank == 0) {
-        bar.set_progress(num_temps);
+        bar.set_progress(num_temps); // Final update to 100%
         bar.mark_as_completed();
     }
     
@@ -127,6 +136,7 @@ std::vector<Results> run_simulation_cpp(
 
     return local_results;
 }
+
 
 Results Ising2D::get_results() const {
     Results res;
