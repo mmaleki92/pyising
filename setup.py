@@ -9,7 +9,7 @@ setup(
     description="Python bindings for the Ising2D C++ simulation",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/Ising2DProject",
+    url="https://github.com/mmaleki2/pyising",
     packages=find_packages(where="."),
     cmake_install_dir="pyising",
     include_package_data=True,
