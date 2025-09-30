@@ -55,10 +55,10 @@ if rank == 0:
     print(f"Total results collected: {len(flat_results)}")
     
     # Save the aggregated results (without configurations)
-    temps_array = np.array([res.T for res in flat_results])
-    mag_array = np.array([res.mean_mag for res in flat_results])
-    energy_array = np.array([res.mean_ene for res in flat_results])
-    binder_array = np.array([res.binder for res in flat_results])
+    temps_array = np.array([res['T'] for res in flat_results])
+    mag_array = np.array([res['mean_mag'] for res in flat_results])
+    energy_array = np.array([res['mean_ene'] for res in flat_results])
+    binder_array = np.array([res['binder'] for res in flat_results])
     
     # Sort by temperature for plotting
     sort_idx = np.argsort(temps_array)

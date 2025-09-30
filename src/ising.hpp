@@ -8,11 +8,6 @@
 #include <cmath>
 #include <mpi.h>
 
-// Forward declare py::list to avoid including pybind11 headers here
-// This keeps your core C++ code independent of Python.
-namespace pybind11 { class list; }
-using py = pybind11;
-
 
 struct Results {
     double binder;

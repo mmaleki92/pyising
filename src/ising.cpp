@@ -1,6 +1,6 @@
-#include <pybind11/stl.h>
 #include <mpi.h>
 #include <omp.h>
+#include <stack>
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -100,14 +100,14 @@ std::vector<Results> run_simulation_cpp(
         if (save_all_configs) {
             std::string final_config_filename = T_dir + "/final_config.npy";
             const auto& config = model.get_configuration();
-            #pragma omp critical
+            #pragma omp critical (file_io)
             {
                 cnpy::npy_save(final_config_filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
             }
         }
 
-        // FIX: Guard MPI calls to ensure only the master thread in each process makes them.
-        #pragma omp master
+        // Use 'critical' for thread-safe progress updates.
+        #pragma omp critical (progress_update)
         {
             int one = 1;
             MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
@@ -136,8 +136,6 @@ std::vector<Results> run_simulation_cpp(
     return local_results;
 }
 
-
-
 Results Ising2D::get_results() const {
     Results res;
     res.binder = m_binder;
@@ -152,23 +150,10 @@ Results Ising2D::get_results() const {
     return res;
 }
 
-void Ising2D::do_metropolis_step(double tstar)
-{
-    compute_metropolis_factors(tstar);
-    metropolis_flip_spin(tstar);
-}
-
-
-void Ising2D::do_wolff_step(double tstar) {
-    double p = 1.0 - std::exp(-2.0 / tstar);
-    wolff_cluster_update(p);
-}
-
 std::vector<int> Ising2D::get_configuration() const {
     std::vector<int> config(m_spins.begin(), m_spins.end());
     return config;
 }
-
 
 Ising2D::Ising2D(int L, unsigned int seed)
     : m_L(L), m_SIZE(L*L),
@@ -177,7 +162,6 @@ Ising2D::Ising2D(int L, unsigned int seed)
       m_energy(0.0), m_save_all_configs(false),
       m_snapshot_count(0), m_snapshot_interval(100),
       m_config_save_path("") {}
-
 
 void Ising2D::initialize_spins() {
     std::uniform_int_distribution<int> init_dist(0, 1);
@@ -188,7 +172,6 @@ void Ising2D::initialize_spins() {
     m_energy = compute_energy();
     m_snapshot_count = 0;
 }
-
 
 void Ising2D::compute_neighbors() {
     for (int y = 0; y < m_L; ++y) {
@@ -254,61 +237,6 @@ void Ising2D::set_snapshot_interval(int interval) {
     m_snapshot_interval = interval;
 }
 
-
-
-void Ising2D::do_step_metropolis_mpi(double tstar, int N, MPI_Win win, int rank)
-{
-    compute_metropolis_factors(tstar);
-
-    // Thermalization phase
-    for (int i = 0; i < 1100; ++i) {
-        metropolis_flip_spin(tstar);
-    }
-    // Measurement phase
-    double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
-    double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
-
-    for (int i = 0; i < N; ++i) {
-        // Perform 1100 Metropolis spin flips
-        for (int j = 0; j < 1100; ++j) {
-            metropolis_flip_spin(tstar);
-        }
-
-        // Measure magnetization, energy, etc.
-        const double mag = fabs(magnetization());
-        const double ene = m_energy;
-
-        mag_sum += mag;
-        mag2_sum += mag * mag;
-        mag4_sum += mag * mag * mag * mag;
-        ene_sum += ene;
-        ene2_sum += ene * ene;
-        ene4_sum += ene * ene * ene * ene;
-
-        // Save configuration directly if needed
-        if (m_save_all_configs && !m_config_save_path.empty() && (i % m_snapshot_interval == 0)) {
-            save_current_config(i);
-        }
-
-        // Update progress after each 1000 measurements
-        if ((i + 1) % 1000 == 0) {
-            int one = 1;
-            MPI_Win_lock(MPI_LOCK_EXCLUSIVE, 0, 0, win);
-            MPI_Accumulate(&one, 1, MPI_INT, 0, 0, 1, MPI_INT, MPI_SUM, win);
-            MPI_Win_unlock(0, win);
-        }
-    }
-
-    // Finalize averages
-    m_meanMag  = mag_sum / N;
-    m_meanMag2 = mag2_sum / N;
-    m_meanMag4 = mag4_sum / N;
-    m_meanEne  = ene_sum / N;
-    m_meanEne2 = ene2_sum / N;
-    m_meanEne4 = ene4_sum / N;
-    m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
-}
-
 void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval) {
     compute_metropolis_factors(tstar);
     m_snapshot_count = 0;
@@ -356,7 +284,6 @@ void Ising2D::thermalize_wolff(double tstar) {
 void Ising2D::wolff_cluster_update(double p) {
     std::stack<int> stack;
     std::vector<bool> in_cluster(m_SIZE, false);
-    int delta_energy = 0;
     const int start = m_ran_pos(m_gen);
     const char target_spin = m_spins[start];
     stack.push(start);
@@ -375,7 +302,6 @@ void Ising2D::wolff_cluster_update(double p) {
             }
         }
     }
-    // Energy update would be more complex; re-computing is safer.
     m_energy = compute_energy();
 }
 
@@ -416,3 +342,4 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
 void Ising2D::enable_save_all_configs(bool enable) {
     m_save_all_configs = enable;
 }
+

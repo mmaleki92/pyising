@@ -6,11 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ====================================================================
-# [cite_start]Safeguard to ensure the correct Conda compiler is being used. [cite: 2]
-# [cite_start]This prevents difficult-to-debug runtime library mismatch errors. [cite: 2]
+# Safeguard to ensure the correct Conda compiler is being used.
+# This prevents difficult-to-debug runtime library mismatch errors.
 # ====================================================================
 if(DEFINED ENV{CONDA_PREFIX})
-    # We are inside a Conda environment. [cite_start]Let's check the compiler. [cite: 3]
+    # We are inside a Conda environment. Let's check the compiler. 
     string(FIND "${CMAKE_CXX_COMPILER}" "$ENV{CONDA_PREFIX}" IS_CONDA_COMPILER)
 
     if(IS_CONDA_COMPILER EQUAL -1)
@@ -31,7 +31,7 @@ if(DEFINED ENV{CONDA_PREFIX})
         CXX=x86_64-conda-linux-gnu-g++ CC=x86_64-conda-linux-gnu-gcc pip install .
         #####################################################################
         ")
-    [cite_start]endif() [cite: 4]
+    endif()
 endif()
 # ====================================================================
 
@@ -54,7 +54,7 @@ add_subdirectory(indicators)
 # Find necessary packages
 find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
-    [cite_start]message(STATUS "OpenMP found. Enabling OpenMP support.") [cite: 5]
+    message(STATUS "OpenMP found. Enabling OpenMP support.")
 else()
     message(FATAL_ERROR "OpenMP not found. Please install OpenMP.")
 endif()
@@ -88,7 +88,7 @@ target_include_directories(_pyising PRIVATE
 target_compile_options(_pyising PRIVATE -O3 -march=native -fopenmp)
 
 # Link the module against all of its dependencies
-[cite_start]target_link_libraries(_pyising PRIVATE [cite: 6]
+target_link_libraries(_pyising PRIVATE
     cnpy
     indicators
     OpenMP::OpenMP_CXX
