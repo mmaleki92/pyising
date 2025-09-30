@@ -97,14 +97,8 @@ std::vector<Results> run_simulation_cpp(
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
 
-        if (save_all_configs) {
-            std::string final_config_filename = T_dir + "/final_config.npy";
-            const auto& config = model.get_configuration();
-            #pragma omp critical (file_io)
-            {
-                cnpy::npy_save(final_config_filename, config.data(), {static_cast<size_t>(L), static_cast<size_t>(L)}, "w");
-            }
-        }
+        // *** CHANGE 1: The block saving "final_config.npy" has been removed from here. ***
+        // Snapshots are now saved only within the do_step_* methods.
 
         // Use 'critical' for thread-safe progress updates.
         #pragma omp critical (progress_update)
@@ -227,10 +221,9 @@ void Ising2D::save_current_config(int step_number) {
 }
 
 void Ising2D::set_config_save_path(const std::string& path) {
+    // *** CHANGE 2: Removed the creation of a "snapshots" subdirectory. ***
+    // We now save directly to the path provided (the temperature directory).
     m_config_save_path = path;
-    std::string snapshot_dir = path + "/snapshots";
-    std::filesystem::create_directories(snapshot_dir);
-    m_config_save_path = snapshot_dir;
 }
 
 void Ising2D::set_snapshot_interval(int interval) {
@@ -342,4 +335,3 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
 void Ising2D::enable_save_all_configs(bool enable) {
     m_save_all_configs = enable;
 }
-
