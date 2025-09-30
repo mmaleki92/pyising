@@ -6,12 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ====================================================================
-# Safeguard to ensure the correct Conda compiler is being used.
-# This prevents difficult-to-debug runtime library mismatch errors.
+# [cite_start]Safeguard to ensure the correct Conda compiler is being used. [cite: 2]
+# [cite_start]This prevents difficult-to-debug runtime library mismatch errors. [cite: 2]
 # ====================================================================
 if(DEFINED ENV{CONDA_PREFIX})
+    # We are inside a Conda environment. [cite_start]Let's check the compiler. [cite: 3]
     string(FIND "${CMAKE_CXX_COMPILER}" "$ENV{CONDA_PREFIX}" IS_CONDA_COMPILER)
+
     if(IS_CONDA_COMPILER EQUAL -1)
+        # The found compiler is NOT inside the Conda environment path.
         message(FATAL_ERROR "
         #####################################################################
         # ERROR: Incorrect C++ compiler detected!                           #
@@ -21,12 +24,14 @@ if(DEFINED ENV{CONDA_PREFIX})
           ${CMAKE_CXX_COMPILER}
 
         This will lead to a GLIBCXX ImportError at runtime.
+
         To fix this, please re-run the installation command specifying
         the correct Conda compilers, for example:
+
         CXX=x86_64-conda-linux-gnu-g++ CC=x86_64-conda-linux-gnu-gcc pip install .
         #####################################################################
         ")
-    endif()
+    [cite_start]endif() [cite: 4]
 endif()
 # ====================================================================
 
@@ -49,7 +54,7 @@ add_subdirectory(indicators)
 # Find necessary packages
 find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
-    message(STATUS "OpenMP found. Enabling OpenMP support.")
+    [cite_start]message(STATUS "OpenMP found. Enabling OpenMP support.") [cite: 5]
 else()
     message(FATAL_ERROR "OpenMP not found. Please install OpenMP.")
 endif()
@@ -63,25 +68,27 @@ endif()
 
 # ====================================================================
 # Build the Python module, compiling all sources directly into it.
-# This avoids creating an unnecessary intermediate static library.
+# This avoids creating an unnecessary intermediate static library and
+# simplifies include path management.
 # ====================================================================
 pybind11_add_module(_pyising
     src/bindings.cpp
     src/ising.cpp
 )
 
-
-# Add include directories for the module
-target_include_directories(_pyising PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>  # <-- ADD THIS LINE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/externals/pcg/include>
+# Add include directories for the module's dependencies
+target_include_directories(_pyising PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/pcg/include
+    ${CMAKE_SOURCE_DIR}/cnpy    
+    ${CMAKE_SOURCE_DIR}/indicators/include 
 )
 
 # Add compile options for the module
 target_compile_options(_pyising PRIVATE -O3 -march=native -fopenmp)
 
 # Link the module against all of its dependencies
-target_link_libraries(_pyising PRIVATE
+[cite_start]target_link_libraries(_pyising PRIVATE [cite: 6]
     cnpy
     indicators
     OpenMP::OpenMP_CXX
