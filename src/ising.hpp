@@ -27,9 +27,9 @@ struct Results {
     double susceptibility;
     double specific_heat;
     double correlation_length;
+    std::vector<double> correlation_function;
 };
 
-// This is the pure C++ simulation function. It knows nothing about Python.
 std::vector<Results> run_simulation_cpp(
     const std::vector<double>& temps, int L, int N_steps,
     int equ_N, int snapshot_interval, unsigned int seed_base,
@@ -46,25 +46,17 @@ public:
     void do_step_wolff(double tstar, int N, int snapshot_interval);
     double compute_energy();
     double magnetization() const;
-    void do_metropolis_step(double tstar);
-    void do_wolff_step(double tstar);
     std::vector<int> get_configuration() const;
-    double get_magnetization() const { return m_meanMag; }
-    double get_magnetization2() const { return m_meanMag2; }
-    double get_magnetization4() const { return m_meanMag4; }
-    double get_energy_mean() const { return m_meanEne; }
-    double get_energy2() const { return m_meanEne2; }
-    double get_energy4() const { return m_meanEne4; }
-    double get_binder_cumulant() const { return m_binder; }
-    int get_L() const { return m_L; }
+    
     Results get_results() const;
     void enable_save_all_configs(bool enable);
     void set_config_save_path(const std::string& path);
     void set_snapshot_interval(int interval);
     void save_current_config(int step_number);
+    // method to calculate G(r) for a single configuration
+    std::vector<double> calculate_correlation_function() const;
 
 private:
-    // RNG
     pcg32 m_gen;
     std::uniform_int_distribution<int> m_ran_pos;
     std::uniform_real_distribution<double> m_ran_u;
@@ -76,24 +68,22 @@ private:
     double m_meanMag, m_meanMag2, m_meanMag4;
     double m_meanEne, m_meanEne2, m_meanEne4;
     double m_binder;
-    // NEW private members for physical quantities
     double m_susceptibility;
     double m_specificHeat;
     double m_correlationLength;
-    // NEW members for correlation length calculation
-    std::vector<double> m_cos_kx;
-    std::vector<double> m_sin_kx;
-    std::vector<double> m_cos_ky;
-    std::vector<double> m_sin_ky;
+    std::vector<double> m_cos_kx, m_sin_kx, m_cos_ky, m_sin_ky;
+    // final averaged correlation function
+    std::vector<double> m_correlation_function;
 
     bool m_save_all_configs;
     int m_snapshot_count;
     int m_snapshot_interval;
     std::string m_config_save_path;
+    
     inline int wrap(int coord) const { return (coord + m_L) % m_L; }
     void metropolis_flip_spin(double tstar);
     void wolff_cluster_update(double p);
     void compute_metropolis_factors(double tstar);
     void thermalize_wolff(double tstar);
-    void precompute_trig_factors(); // NEW private method
+    void precompute_trig_factors();
 };

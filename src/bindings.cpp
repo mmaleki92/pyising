@@ -38,16 +38,15 @@ py::list run_parallel_metropolis_py(
         result_dict["mean_mag"] = res.meanMag;
         result_dict["mean_ene"] = res.meanEne;
         result_dict["binder"] = res.binder;
-        // NEW: Add new quantities to the Python dictionary
         result_dict["susceptibility"] = res.susceptibility;
         result_dict["specific_heat"] = res.specific_heat;
-        result_dict["correlation_length"] = res.correlation_length;
+        result_dict["correlation_length"] = res.correlation_length; // From S(k)
+        result_dict["correlation_function"] = res.correlation_function;
         final_results_list.append(result_dict);
     }
     
     return final_results_list;
 }
-
 
 PYBIND11_MODULE(_pyising, m) {
     // Bind the Ising2D class as before
@@ -61,11 +60,12 @@ PYBIND11_MODULE(_pyising, m) {
         .def("magnetization", &Ising2D::magnetization)
         .def("do_step_metropolis", &Ising2D::do_step_metropolis)
         .def("do_step_wolff", &Ising2D::do_step_wolff)
-        .def("get_configuration", &Ising2D::get_configuration)
-        .def("get_L", &Ising2D::get_L)
-        .def("get_magnetization", &Ising2D::get_magnetization)
-        .def("get_energy_mean", &Ising2D::get_energy_mean)
-        .def("get_binder_cumulant", &Ising2D::get_binder_cumulant);
+        .def("get_configuration", &Ising2D::get_configuration);
+
+        // .def("get_L", &Ising2D::get_L)
+        // .def("get_magnetization", &Ising2D::get_magnetization)
+        // .def("get_energy_mean", &Ising2D::get_energy_mean)
+        // .def("get_binder_cumulant", &Ising2D::get_binder_cumulant);
 
     // Bind the Python-visible name "run_parallel_metropolis" to our new wrapper.
     m.def("run_parallel_metropolis", &run_parallel_metropolis_py,

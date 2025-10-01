@@ -7,6 +7,8 @@
 #include <sstream>
 #include <iomanip>
 #include "ising.hpp"
+#include <complex>
+#include "fft.hpp"
 #include "cnpy/cnpy.h"
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
@@ -127,6 +129,7 @@ std::vector<Results> run_simulation_cpp(
 }
 
 
+
 Results Ising2D::get_results() const {
     Results res;
     res.binder = m_binder;
@@ -142,6 +145,7 @@ Results Ising2D::get_results() const {
     res.susceptibility = m_susceptibility;
     res.specific_heat = m_specificHeat;
     res.correlation_length = m_correlationLength;
+    res.correlation_function = m_correlation_function;
     return res;
 }
 
@@ -176,6 +180,53 @@ void Ising2D::precompute_trig_factors() {
             m_sin_ky[idx] = sin(k_min * y);
         }
     }
+}
+
+std::vector<double> Ising2D::calculate_correlation_function() const {
+    // 1. Copy spin configuration to a complex vector for FFT
+    std::vector<std::complex<double>> fft_grid(m_SIZE);
+    for(int i = 0; i < m_SIZE; ++i) {
+        fft_grid[i] = std::complex<double>(m_spins[i], 0.0);
+    }
+
+    // 2. Perform 2D Fast Fourier Transform
+    fft2d(fft_grid, m_L, false);
+
+    // 3. Compute the power spectrum |FFT(s)|^2
+    for(int i = 0; i < m_SIZE; ++i) {
+        fft_grid[i] = fft_grid[i] * std::conj(fft_grid[i]);
+    }
+
+    // 4. Perform inverse 2D FFT to get the 2D correlation map
+    fft2d(fft_grid, m_L, true);
+
+    // 5. Radially average the 2D correlation map to get 1D G(r)
+    int max_r = m_L / 2;
+    std::vector<double> G_r(max_r + 1, 0.0);
+    std::vector<long> counts(max_r + 1, 0);
+
+    for (int y = 0; y < m_L; ++y) {
+        for (int x = 0; x < m_L; ++x) {
+            // Use periodic boundary conditions for distance
+            int dx = (x > m_L/2) ? m_L - x : x;
+            int dy = (y > m_L/2) ? m_L - y : y;
+            int r = static_cast<int>(std::round(std::sqrt(dx*dx + dy*dy)));
+
+            if (r <= max_r) {
+                // The real part of the IFFT result is what we need
+                G_r[r] += fft_grid[y * m_L + x].real();
+                counts[r]++;
+            }
+        }
+    }
+    
+    // Normalize by the number of pairs for each distance r and by N
+    for (int r = 0; r <= max_r; ++r) {
+        if (counts[r] > 0) {
+            G_r[r] /= (counts[r] * m_SIZE);
+        }
+    }
+    return G_r;
 }
 
 void Ising2D::initialize_spins() {
@@ -258,7 +309,9 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
 
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
-    double s_k_min_sum = 0; // NEW: accumulator for structure factor
+    double s_k_min_sum = 0;
+    // Accumulator for the correlation function
+    std::vector<double> G_r_sum(m_L / 2 + 1, 0.0);
 
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < 1100; ++j) {
@@ -286,11 +339,16 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
         double s_k_y = (cos_sum_y * cos_sum_y + sin_sum_y * sin_sum_y) / m_SIZE;
         s_k_min_sum += (s_k_x + s_k_y) / 2.0; // Average over both kx and ky directions
 
+        // NEW: Calculate G(r) for this step and add to sum
+        std::vector<double> G_r_current = calculate_correlation_function();
+        for(size_t r = 0; r < G_r_sum.size(); ++r) {
+            G_r_sum[r] += G_r_current[r];
+        }
+
         if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
             save_current_config(i);
         }
-        m_snapshot_count = i;
-    }
+        m_snapshot_count = i;    }
     
     double N_double = static_cast<double>(N);
     m_meanMag = mag_sum / N_double;
@@ -300,7 +358,6 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
     m_meanEne2 = ene2_sum / N_double;
     m_meanEne4 = ene4_sum / N_double;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
-    
     // Magnetic Susceptibility
     m_susceptibility = (m_SIZE / tstar) * (m_meanMag2 - m_meanMag * m_meanMag);
     // Specific Heat
@@ -312,6 +369,13 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
         m_correlationLength = (1.0 / (2.0 * sin(M_PI / m_L))) * sqrt(term_in_sqrt);
     } else {
         m_correlationLength = 0.0;
+    }
+    // Finalize the connected correlation function
+    m_correlation_function.resize(G_r_sum.size());
+    double avg_mag_sq = m_meanMag * m_meanMag;
+    for(size_t r = 0; r < G_r_sum.size(); ++r) {
+        // Average G(r) and subtract <S>^2
+        m_correlation_function[r] = (G_r_sum[r] / N_double) - avg_mag_sq;
     }
 }
 
@@ -353,7 +417,9 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
 
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
-    double s_k_min_sum = 0; // NEW: accumulator for structure factor
+    double s_k_min_sum = 0;
+    // Accumulator for the correlation function
+    std::vector<double> G_r_sum(m_L / 2 + 1, 0.0);
 
     for (int i = 0; i < N; ++i) {
         wolff_cluster_update(p);
@@ -366,7 +432,8 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
-        // NEW: Calculate structure factor for this configuration
+
+        // Calculate structure factor for this configuration
         double cos_sum_x = 0.0, sin_sum_x = 0.0;
         double cos_sum_y = 0.0, sin_sum_y = 0.0;
         for (int site = 0; site < m_SIZE; ++site) {
@@ -379,6 +446,11 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
         double s_k_y = (cos_sum_y * cos_sum_y + sin_sum_y * sin_sum_y) / m_SIZE;
         s_k_min_sum += (s_k_x + s_k_y) / 2.0; // Average over both kx and ky directions
 
+        // Calculate G(r) for this step and add to sum
+        std::vector<double> G_r_current = calculate_correlation_function();
+        for(size_t r = 0; r < G_r_sum.size(); ++r) {
+            G_r_sum[r] += G_r_current[r];
+        }
 
         if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
             save_current_config(i);
@@ -395,6 +467,9 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
     m_meanEne4 = ene4_sum / N_double;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
 
+    // NEW: Finalize the connected correlation function
+    m_correlation_function.resize(G_r_sum.size());
+
     // Magnetic Susceptibility
     m_susceptibility = (m_SIZE / tstar) * (m_meanMag2 - m_meanMag * m_meanMag);
     // Specific Heat
@@ -407,8 +482,12 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
     } else {
         m_correlationLength = 0.0;
     }
+    double avg_mag_sq = m_meanMag * m_meanMag;
+    for(size_t r = 0; r < G_r_sum.size(); ++r) {
+        // Average G(r) and subtract <S>^2
+        m_correlation_function[r] = (G_r_sum[r] / N_double) - avg_mag_sq;
+    }
 }
-
 void Ising2D::enable_save_all_configs(bool enable) {
     m_save_all_configs = enable;
 }

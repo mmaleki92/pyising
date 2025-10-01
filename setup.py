@@ -22,6 +22,9 @@ setup(
     python_requires='>=3.6',
     install_requires=[
         "pybind11>=2.5.0",
-        "mpi4py"
+        "mpi4py",
+        "numpy",
+        "matplotlib",
+        "scipy"
     ],
 )
