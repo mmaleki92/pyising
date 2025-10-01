@@ -18,25 +18,18 @@ comm.Barrier()
 
 temps = np.linspace(1.5, 3.5, 60)
 L = 32
-N_steps = 20000  # Number of measurement steps
-equ_N = 5000     # Number of equilibration steps
-snapshot_interval = 2000
-seed_base = 42
-use_wolff = True # Wolff is more efficient near the critical point
-save_all_configs = False # Set to False if you just need the plots
+N_steps = 20000
+equ_N = 5000
+use_wolff = True
+save_all_configs = False
 
 if rank == 0:
     print(f"Starting simulation with L={L}, {len(temps)} temperatures...")
     start_time = time.time()
 
 local_results = pyising.run_parallel_metropolis(
-    temps, L, N_steps=N_steps,
-    equ_N=equ_N,
-    snapshot_interval=snapshot_interval,
-    seed_base=seed_base,
-    output_dir=output_dir,
-    use_wolff=use_wolff, 
-    save_all_configs=save_all_configs
+    temps, L, N_steps=N_steps, equ_N=equ_N, snapshot_interval=1000,
+    seed_base=42, output_dir=output_dir, use_wolff=use_wolff, save_all_configs=save_all_configs
 )
 all_results = comm.gather(local_results, root=0)
 
@@ -69,10 +62,10 @@ if rank == 0:
     specific_heat_array = specific_heat_array[sort_idx]
     sorted_results = [flat_results[i] for i in sort_idx]
 
-    # --- NEW: Calculate Correlation Length by fitting Gamma(r) for every temperature ---
+    # --- Calculate Correlation Length by fitting Gamma(r) for every temperature ---
     print("\nFitting Gamma(r) for all temperatures to find correlation length...")
     xi_from_fit_array = []
-    fit_start, fit_end = 2, L // 4 # Define a stable range to fit over
+    fit_start, fit_end = 2, L // 4
 
     for result in sorted_results:
         Gamma_r = np.array(result['correlation_function'])
@@ -87,20 +80,19 @@ if rank == 0:
                 log_Gamma_fit = np.log(Gamma_r[fit_indices])
                 slope, _, _, _, _ = linregress(r_fit, log_Gamma_fit)
                 
-                # Check for a valid negative slope
                 if slope < 0:
                     xi_from_fit_array.append(-1 / slope)
                 else:
-                    xi_from_fit_array.append(np.nan) # Invalid fit
+                    xi_from_fit_array.append(np.nan)
             except Exception:
-                xi_from_fit_array.append(np.nan) # Fit failed
+                xi_from_fit_array.append(np.nan)
         else:
-            xi_from_fit_array.append(np.nan) # Not enough data to fit
+            xi_from_fit_array.append(np.nan)
 
     correlation_length_fit_array = np.array(xi_from_fit_array)
     print("Fitting complete.")
 
-    # --- UPDATED: Save the new correlation length to the results file ---
+    # Save the new correlation length to the results file
     results_file = os.path.join(output_dir, f"L_{L}_results.txt")
     header = "# Temperature Magnetization Energy Binder Susceptibility SpecificHeat CorrLength(Fit)"
     data_to_save = np.vstack([
@@ -110,18 +102,17 @@ if rank == 0:
     np.savetxt(results_file, data_to_save, header=header, fmt='%.8f')
     print(f"Saved aggregated results to {results_file}")
 
-    # --- PART 1: Plotting of Bulk Quantities ---
+    # --- Plotting of Bulk Quantities ---
     print("Generating plots...")
     
     fig, axes = plt.subplots(3, 2, figsize=(14, 12), sharex=True)
     fig.suptitle(f'Ising Model Physical Properties (L={L})', fontsize=16)
 
-    # (Plots for M, E, Chi, Cv, Binder remain the same)
-    axes[0, 0].plot(temps_array, mag_array, 'o-', markersize=4)
+    # Plot 1: Magnetization
+    axes[0, 0].plot(temps_array, mag_array, 'o-', markersize=4, label='$\\langle|m|\\rangle$')
     axes[0, 0].set_ylabel('Magnetization $\\langle|m|\\rangle$')
     axes[0, 0].grid(True)
     
-
     # Plot 2: Energy
     axes[0, 1].plot(temps_array, energy_array, 's-', color='red', markersize=4, label='$\\langle E \\rangle$')
     axes[0, 1].set_ylabel('Energy $\\langle E \\rangle$')
@@ -144,7 +135,7 @@ if rank == 0:
     axes[2, 0].grid(True)
 
     # Plot 6: Correlation Length
-    axes[2, 1].plot(temps_array, correlation_length_fit_array, '*-', color='brown')
+    axes[2, 1].plot(temps_array, correlation_length_fit_array, '*-', color='brown', label='$\\xi$ (Fit)')
     axes[2, 1].set_ylabel('Correlation Length $\\xi$ (from Γ(r) fit)')
     axes[2, 1].set_xlabel('Temperature $T$')
     axes[2, 1].grid(True)
