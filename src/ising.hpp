@@ -1,4 +1,5 @@
 #pragma once
+#define _USE_MATH_DEFINES // NEW: Ensure M_PI is defined
 #include <string>
 #include <vector>
 #include <random>
@@ -7,7 +8,6 @@
 #include <pcg_random.hpp>
 #include <cmath>
 #include <mpi.h>
-
 
 struct Results {
     double binder;
@@ -23,6 +23,10 @@ struct Results {
     std::map<std::string, std::string> metadata;
     std::chrono::duration<double> runtime;
     std::vector<double> timing_per_step;
+    // NEW additions
+    double susceptibility;
+    double specific_heat;
+    double correlation_length;
 };
 
 // This is the pure C++ simulation function. It knows nothing about Python.
@@ -60,10 +64,6 @@ public:
     void save_current_config(int step_number);
 
 private:
-    // Internal methods
-    // void wolff_add_to_cluster(int pos, double p);
-
-
     // RNG
     pcg32 m_gen;
     std::uniform_int_distribution<int> m_ran_pos;
@@ -76,6 +76,16 @@ private:
     double m_meanMag, m_meanMag2, m_meanMag4;
     double m_meanEne, m_meanEne2, m_meanEne4;
     double m_binder;
+    // NEW private members for physical quantities
+    double m_susceptibility;
+    double m_specificHeat;
+    double m_correlationLength;
+    // NEW members for correlation length calculation
+    std::vector<double> m_cos_kx;
+    std::vector<double> m_sin_kx;
+    std::vector<double> m_cos_ky;
+    std::vector<double> m_sin_ky;
+
     bool m_save_all_configs;
     int m_snapshot_count;
     int m_snapshot_interval;
@@ -85,4 +95,5 @@ private:
     void wolff_cluster_update(double p);
     void compute_metropolis_factors(double tstar);
     void thermalize_wolff(double tstar);
+    void precompute_trig_factors(); // NEW private method
 };

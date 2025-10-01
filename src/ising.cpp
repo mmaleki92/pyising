@@ -97,8 +97,6 @@ std::vector<Results> run_simulation_cpp(
         local_results[i] = model.get_results();
         local_results[i].T = local_temps[i];
 
-
-        // Use 'critical' for thread-safe progress updates.
         #pragma omp critical (progress_update)
         {
             int one = 1;
@@ -128,6 +126,7 @@ std::vector<Results> run_simulation_cpp(
     return local_results;
 }
 
+
 Results Ising2D::get_results() const {
     Results res;
     res.binder = m_binder;
@@ -139,6 +138,10 @@ Results Ising2D::get_results() const {
     res.meanEne4 = m_meanEne4;
     res.configuration = get_configuration();
     res.L = m_L;
+    // NEW: Populate new results
+    res.susceptibility = m_susceptibility;
+    res.specific_heat = m_specificHeat;
+    res.correlation_length = m_correlationLength;
     return res;
 }
 
@@ -153,7 +156,27 @@ Ising2D::Ising2D(int L, unsigned int seed)
       m_spins(L*L, 1), m_neighbors(4*L*L, 0),
       m_energy(0.0), m_save_all_configs(false),
       m_snapshot_count(0), m_snapshot_interval(100),
-      m_config_save_path("") {}
+      m_config_save_path("") {
+    precompute_trig_factors(); // NEW: Precompute factors for correlation length
+}
+
+// NEW: Precompute trigonometric factors for calculating the structure factor S(k_min)
+void Ising2D::precompute_trig_factors() {
+    m_cos_kx.resize(m_SIZE);
+    m_sin_kx.resize(m_SIZE);
+    m_cos_ky.resize(m_SIZE);
+    m_sin_ky.resize(m_SIZE);
+    double k_min = 2.0 * M_PI / m_L;
+    for (int y = 0; y < m_L; ++y) {
+        for (int x = 0; x < m_L; ++x) {
+            int idx = y * m_L + x;
+            m_cos_kx[idx] = cos(k_min * x);
+            m_sin_kx[idx] = sin(k_min * x);
+            m_cos_ky[idx] = cos(k_min * y);
+            m_sin_ky[idx] = sin(k_min * y);
+        }
+    }
+}
 
 void Ising2D::initialize_spins() {
     std::uniform_int_distribution<int> init_dist(0, 1);
@@ -219,8 +242,6 @@ void Ising2D::save_current_config(int step_number) {
 }
 
 void Ising2D::set_config_save_path(const std::string& path) {
-    // *** CHANGE 2: Removed the creation of a "snapshots" subdirectory. ***
-    // We now save directly to the path provided (the temperature directory).
     m_config_save_path = path;
 }
 
@@ -237,6 +258,7 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
 
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
+    double s_k_min_sum = 0; // NEW: accumulator for structure factor
 
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < 1100; ++j) {
@@ -251,19 +273,46 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
+        // NEW: Calculate structure factor for this configuration
+        double cos_sum_x = 0.0, sin_sum_x = 0.0;
+        double cos_sum_y = 0.0, sin_sum_y = 0.0;
+        for (int site = 0; site < m_SIZE; ++site) {
+            cos_sum_x += m_spins[site] * m_cos_kx[site];
+            sin_sum_x += m_spins[site] * m_sin_kx[site];
+            cos_sum_y += m_spins[site] * m_cos_ky[site];
+            sin_sum_y += m_spins[site] * m_sin_ky[site];
+        }
+        double s_k_x = (cos_sum_x * cos_sum_x + sin_sum_x * sin_sum_x) / m_SIZE;
+        double s_k_y = (cos_sum_y * cos_sum_y + sin_sum_y * sin_sum_y) / m_SIZE;
+        s_k_min_sum += (s_k_x + s_k_y) / 2.0; // Average over both kx and ky directions
+
         if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
             save_current_config(i);
         }
         m_snapshot_count = i;
     }
-
-    m_meanMag = mag_sum / N;
-    m_meanMag2 = mag2_sum / N;
-    m_meanMag4 = mag4_sum / N;
-    m_meanEne = ene_sum / N;
-    m_meanEne2 = ene2_sum / N;
-    m_meanEne4 = ene4_sum / N;
+    
+    double N_double = static_cast<double>(N);
+    m_meanMag = mag_sum / N_double;
+    m_meanMag2 = mag2_sum / N_double;
+    m_meanMag4 = mag4_sum / N_double;
+    m_meanEne = ene_sum / N_double;
+    m_meanEne2 = ene2_sum / N_double;
+    m_meanEne4 = ene4_sum / N_double;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
+    
+    // Magnetic Susceptibility
+    m_susceptibility = (m_SIZE / tstar) * (m_meanMag2 - m_meanMag * m_meanMag);
+    // Specific Heat
+    m_specificHeat = (1.0 / (m_SIZE * tstar * tstar)) * (m_meanEne2 - m_meanEne * m_meanEne);
+    // Correlation Length
+    double mean_s_k_min = s_k_min_sum / N_double;
+    double term_in_sqrt = ( (m_SIZE * m_meanMag2) / mean_s_k_min ) - 1.0;
+    if (term_in_sqrt > 0 && mean_s_k_min > 1e-12) {
+        m_correlationLength = (1.0 / (2.0 * sin(M_PI / m_L))) * sqrt(term_in_sqrt);
+    } else {
+        m_correlationLength = 0.0;
+    }
 }
 
 void Ising2D::thermalize_wolff(double tstar) {
@@ -304,6 +353,7 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
 
     double mag_sum = 0, mag2_sum = 0, mag4_sum = 0;
     double ene_sum = 0, ene2_sum = 0, ene4_sum = 0;
+    double s_k_min_sum = 0; // NEW: accumulator for structure factor
 
     for (int i = 0; i < N; ++i) {
         wolff_cluster_update(p);
@@ -316,18 +366,47 @@ void Ising2D::do_step_wolff(double tstar, int N, int snapshot_interval) {
         ene2_sum += ene * ene;
         ene4_sum += ene * ene * ene * ene;
 
+        // NEW: Calculate structure factor for this configuration
+        double cos_sum_x = 0.0, sin_sum_x = 0.0;
+        double cos_sum_y = 0.0, sin_sum_y = 0.0;
+        for (int site = 0; site < m_SIZE; ++site) {
+            cos_sum_x += m_spins[site] * m_cos_kx[site];
+            sin_sum_x += m_spins[site] * m_sin_kx[site];
+            cos_sum_y += m_spins[site] * m_cos_ky[site];
+            sin_sum_y += m_spins[site] * m_sin_ky[site];
+        }
+        double s_k_x = (cos_sum_x * cos_sum_x + sin_sum_x * sin_sum_x) / m_SIZE;
+        double s_k_y = (cos_sum_y * cos_sum_y + sin_sum_y * sin_sum_y) / m_SIZE;
+        s_k_min_sum += (s_k_x + s_k_y) / 2.0; // Average over both kx and ky directions
+
+
         if (m_save_all_configs && !m_config_save_path.empty() && (i % snapshot_interval == 0)) {
             save_current_config(i);
         }
         m_snapshot_count = i;
     }
-    m_meanMag = mag_sum / N;
-    m_meanMag2 = mag2_sum / N;
-    m_meanMag4 = mag4_sum / N;
-    m_meanEne = ene_sum / N;
-    m_meanEne2 = ene2_sum / N;
-    m_meanEne4 = ene4_sum / N;
+    
+    double N_double = static_cast<double>(N);
+    m_meanMag = mag_sum / N_double;
+    m_meanMag2 = mag2_sum / N_double;
+    m_meanMag4 = mag4_sum / N_double;
+    m_meanEne = ene_sum / N_double;
+    m_meanEne2 = ene2_sum / N_double;
+    m_meanEne4 = ene4_sum / N_double;
     m_binder = 1.0 - (m_meanMag4 / (3.0 * m_meanMag2 * m_meanMag2));
+
+    // Magnetic Susceptibility
+    m_susceptibility = (m_SIZE / tstar) * (m_meanMag2 - m_meanMag * m_meanMag);
+    // Specific Heat
+    m_specificHeat = (1.0 / (m_SIZE * tstar * tstar)) * (m_meanEne2 - m_meanEne * m_meanEne);
+    // Correlation Length
+    double mean_s_k_min = s_k_min_sum / N_double;
+    double term_in_sqrt = ( (m_SIZE * m_meanMag2) / mean_s_k_min ) - 1.0;
+    if (term_in_sqrt > 0 && mean_s_k_min > 1e-12) {
+        m_correlationLength = (1.0 / (2.0 * sin(M_PI / m_L))) * sqrt(term_in_sqrt);
+    } else {
+        m_correlationLength = 0.0;
+    }
 }
 
 void Ising2D::enable_save_all_configs(bool enable) {

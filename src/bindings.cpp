@@ -38,6 +38,10 @@ py::list run_parallel_metropolis_py(
         result_dict["mean_mag"] = res.meanMag;
         result_dict["mean_ene"] = res.meanEne;
         result_dict["binder"] = res.binder;
+        // NEW: Add new quantities to the Python dictionary
+        result_dict["susceptibility"] = res.susceptibility;
+        result_dict["specific_heat"] = res.specific_heat;
+        result_dict["correlation_length"] = res.correlation_length;
         final_results_list.append(result_dict);
     }
     
@@ -64,7 +68,6 @@ PYBIND11_MODULE(_pyising, m) {
         .def("get_binder_cumulant", &Ising2D::get_binder_cumulant);
 
     // Bind the Python-visible name "run_parallel_metropolis" to our new wrapper.
-    // **NOTE: The call_guard has been removed from here.**
     m.def("run_parallel_metropolis", &run_parallel_metropolis_py,
             "Run the parallel Metropolis simulation",
             py::arg("temps"), py::arg("L"), py::arg("N_steps"),
