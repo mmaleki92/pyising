@@ -32,13 +32,13 @@ jobs:
         # Build only manylinux wheels for selected Python versions
         export CIBW_BUILD="cp38-manylinux* cp39-manylinux* cp310-manylinux* cp311-manylinux* cp312-manylinux*"
         # Skip all other platforms explicitly
-        export CIBW_SKIP="*-musllinux* *-win* *-macos*"
+        export CIBW_SKIP="*-musllinux* *-win* *-macos* *-manylinux_i686"
         # Install MPI and build tools for manylinux
-        export CIBW_BEFORE_BUILD="yum install -y openmpi-devel && pip install ninja"
-        # Set MPI paths for CMake
-        export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_HOME=/usr/lib64/openmpi -DMPI_C_LIBRARIES=/usr/lib64/openmpi/lib/libmpi.so -DMPI_CXX_LIBRARIES=/usr/lib64/openmpi/lib/libmpi_cxx.so -DMPI_C_INCLUDE_PATH=/usr/include/openmpi-x86_64 -DMPI_CXX_INCLUDE_PATH=/usr/include/openmpi-x86_64'"
-        # Run the build
-        python -m cibuildwheel --output-dir dist
+        export CIBW_BEFORE_BUILD="yum install -y openmpi openmpi-devel && pip install ninja && export PATH=\$PATH:/usr/lib64/openmpi/bin && which mpicc && which mpic++ && mpic++ --version"
+        # Set MPI paths for CMake - more explicit paths to help CMake find MPI
+        export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_C_COMPILER=/usr/lib64/openmpi/bin/mpicc -DMPI_CXX_COMPILER=/usr/lib64/openmpi/bin/mpic++ -DMPI_C_LIBRARIES=/usr/lib64/openmpi/lib/libmpi.so -DMPI_CXX_LIBRARIES=/usr/lib64/openmpi/lib/libmpi_cxx.so -DMPI_C_INCLUDE_PATH=/usr/include/openmpi-x86_64 -DMPI_CXX_INCLUDE_PATH=/usr/include/openmpi-x86_64'"
+        # Run the build with verbose output to see exactly what's happening
+        python -m cibuildwheel --output-dir dist --verbose
 
     - name: Check distribution
       run: twine check dist/*
