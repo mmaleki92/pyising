@@ -30,6 +30,7 @@ jobs:
     - name: Build package with cibuildwheel
       run: |
         export CIBW_BUILD="cp38-* cp39-* cp310-* cp311-* cp312-*"
+        export CIBW_SKIP="*-manylinux_i686 *-musllinux_i686 *-win32"
         export CIBW_BEFORE_BUILD="yum install -y openmpi-devel && pip install ninja"
         export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_HOME=/usr/lib64/openmpi'"
         python -m cibuildwheel --output-dir dist
