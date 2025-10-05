@@ -31,7 +31,10 @@ jobs:
       run: |
         export CIBW_BUILD="cp38-* cp39-* cp310-* cp311-* cp312-*"
         export CIBW_SKIP="*-manylinux_i686 *-musllinux_i686 *-win32"
-        export CIBW_BEFORE_BUILD="apt install -y openmpi-devel && pip install ninja"
+        # Different package managers and package names for different platforms
+        export CIBW_BEFORE_BUILD_MANYLINUX="yum install -y openmpi-devel && pip install ninja"
+        export CIBW_BEFORE_BUILD_MUSLLINUX="apk add openmpi-dev && pip install ninja"
+        export CIBW_BEFORE_BUILD_MACOS="brew install open-mpi && pip install ninja"
         export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_HOME=/usr/lib64/openmpi'"
         python -m cibuildwheel --output-dir dist
 
