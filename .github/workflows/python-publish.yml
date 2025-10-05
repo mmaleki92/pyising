@@ -30,7 +30,7 @@ jobs:
     - name: Build package with cibuildwheel
       run: |
         export CIBW_BUILD="cp38-* cp39-* cp310-* cp311-* cp312-*"
-        export CIBW_BEFORE_BUILD="pip install ninja"
+        export CIBW_BEFORE_BUILD="yum install -y openmpi-devel && pip install ninja"
         python -m cibuildwheel --output-dir dist
 
     - name: Check distribution
@@ -41,4 +41,3 @@ jobs:
       with:
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
-        
