@@ -37,8 +37,8 @@ jobs:
         export CIBW_BEFORE_BUILD="yum install -y openmpi openmpi-devel && pip install ninja && export PATH=\$PATH:/usr/lib64/openmpi/bin && which mpicc && which mpic++ && mpic++ --version"
         # Set MPI paths for CMake - more explicit paths to help CMake find MPI
         export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_C_COMPILER=/usr/lib64/openmpi/bin/mpicc -DMPI_CXX_COMPILER=/usr/lib64/openmpi/bin/mpic++ -DMPI_C_LIBRARIES=/usr/lib64/openmpi/lib/libmpi.so -DMPI_CXX_LIBRARIES=/usr/lib64/openmpi/lib/libmpi_cxx.so -DMPI_C_INCLUDE_PATH=/usr/include/openmpi-x86_64 -DMPI_CXX_INCLUDE_PATH=/usr/include/openmpi-x86_64'"
-        # Run the build with verbose output to see exactly what's happening
-        python -m cibuildwheel --output-dir dist --verbose
+        # Run the build with output to see exactly what's happening
+        python -m cibuildwheel --output-dir dist
 
     - name: Check distribution
       run: twine check dist/*
