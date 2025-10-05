@@ -12,8 +12,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        submodules: recursive  # Ensure submodules are included
-        fetch-depth: 0  # Needed for versioning
+        submodules: recursive
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -31,6 +31,7 @@ jobs:
       run: |
         export CIBW_BUILD="cp38-* cp39-* cp310-* cp311-* cp312-*"
         export CIBW_BEFORE_BUILD="yum install -y openmpi-devel && pip install ninja"
+        export CIBW_ENVIRONMENT="CMAKE_ARGS='-DMPI_HOME=/usr/lib64/openmpi'"
         python -m cibuildwheel --output-dir dist
 
     - name: Check distribution
