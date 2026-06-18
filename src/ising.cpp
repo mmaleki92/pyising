@@ -186,19 +186,21 @@ std::vector<double> Ising2D::calculate_correlation_function() const {
     in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
     out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
 
+    // Using [ 0 ] for Real part, [ 1 ] for Imaginary part
     for(int i = 0; i < m_SIZE; ++i) {
-        in[i] = static_cast<double>(m_spins[i]);
-        in[i] = 0.0;
+        in[i][0] = static_cast<double>(m_spins[i]);
+        in[i][1] = 0.0; 
     }
 
     p_forward = fftw_plan_dft_2d(m_L, m_L, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
     fftw_execute(p_forward);
 
+    // Extracting [ 0 ] and [ 1 ] properly
     for(int i = 0; i < m_SIZE; ++i) {
-        double real = out[i];
-        double imag = out[i];
-        in[i] = real * real + imag * imag; 
-        in[i] = 0.0;
+        double real = out[i][0];
+        double imag = out[i][1];
+        in[i][0] = real * real + imag * imag; 
+        in[i][1] = 0.0;
     }
 
     p_backward = fftw_plan_dft_2d(m_L, m_L, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
@@ -216,7 +218,8 @@ std::vector<double> Ising2D::calculate_correlation_function() const {
             int r = static_cast<int>(std::round(std::sqrt(dx*dx + dy*dy)));
 
             if (r <= max_r) {
-                G_r[r] += (out[y * m_L + x] / norm_factor);
+                // Extracting the real part [ 0 ] before dividing
+                G_r[r] += (out[y * m_L + x][0] / norm_factor);
                 counts[r]++;
             }
         }
