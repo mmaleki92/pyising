@@ -8,7 +8,7 @@
 #include <iomanip>
 #include "ising.hpp"
 #include <complex>
-#include <fftw3.h> // FIXED: Using FFTW3 instead of custom fft.hpp
+#include <fftw3.h>
 #include "cnpy/cnpy.h"
 #include <indicators/progress_bar.hpp>
 #include <indicators/termcolor.hpp>
@@ -178,7 +178,6 @@ void Ising2D::precompute_trig_factors() {
     }
 }
 
-// FIXED: Using FFTW3 to allow arbitrary lattice sizes
 std::vector<double> Ising2D::calculate_correlation_function() const {
     fftw_complex *in, *out;
     fftw_plan p_forward, p_backward;
@@ -323,7 +322,6 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
     std::vector<double> G_r_sum(m_L / 2 + 1, 0.0);
 
     for (int i = 0; i < N; ++i) {
-        // FIXED: Loop over m_SIZE to perform 1 proper Sweep
         for (int j = 0; j < m_SIZE; ++j) { 
             metropolis_flip_spin(tstar);
         }
@@ -388,7 +386,6 @@ void Ising2D::do_step_metropolis(double tstar, int N, int equ_N, int snapshot_in
 }
 
 void Ising2D::thermalize_wolff(double tstar) {
-    // FIXED: Dropped thermalization count from 5 * m_SIZE to 200 to prevent overkill
     for (int i = 0; i < 200; ++i) {
         wolff_cluster_update(1.0 - std::exp(-2.0 / tstar));
     }
