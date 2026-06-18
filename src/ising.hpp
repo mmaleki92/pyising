@@ -1,5 +1,5 @@
 #pragma once
-#define _USE_MATH_DEFINES // NEW: Ensure M_PI is defined
+#define _USE_MATH_DEFINES // Ensure M_PI is defined
 #include <string>
 #include <vector>
 #include <random>
@@ -23,7 +23,6 @@ struct Results {
     std::map<std::string, std::string> metadata;
     std::chrono::duration<double> runtime;
     std::vector<double> timing_per_step;
-    // NEW additions
     double susceptibility;
     double specific_heat;
     double correlation_length;
@@ -53,7 +52,6 @@ public:
     void set_config_save_path(const std::string& path);
     void set_snapshot_interval(int interval);
     void save_current_config(int step_number);
-    // method to calculate G(r) for a single configuration
     std::vector<double> calculate_correlation_function() const;
 
 private:
@@ -72,7 +70,6 @@ private:
     double m_specificHeat;
     double m_correlationLength;
     std::vector<double> m_cos_kx, m_sin_kx, m_cos_ky, m_sin_ky;
-    // final averaged correlation function
     std::vector<double> m_correlation_function;
 
     bool m_save_all_configs;
