@@ -7,7 +7,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ====================================================================
 # Safeguard to ensure the correct Conda compiler is being used.
-# This prevents difficult-to-debug runtime library mismatch errors.
 # ====================================================================
 if(DEFINED ENV{CONDA_PREFIX})
     # We are inside a Conda environment. Let's check the compiler. 
@@ -66,10 +65,17 @@ else()
     message(FATAL_ERROR "MPI not found. Please install MPI.")
 endif()
 
+# FIXED: Find FFTW3 Library
+find_library(FFTW3_LIBRARY NAMES fftw3 REQUIRED)
+find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h REQUIRED)
+if(FFTW3_LIBRARY AND FFTW3_INCLUDE_DIR)
+    message(STATUS "FFTW3 found: ${FFTW3_LIBRARY}")
+else()
+    message(FATAL_ERROR "FFTW3 not found. Please install it (e.g., sudo apt install libfftw3-dev).")
+endif()
+
 # ====================================================================
-# Build the Python module, compiling all sources directly into it.
-# This avoids creating an unnecessary intermediate static library and
-# simplifies include path management.
+# Build the Python module
 # ====================================================================
 pybind11_add_module(_pyising
     src/bindings.cpp
@@ -82,6 +88,7 @@ target_include_directories(_pyising PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/pcg/include
     ${CMAKE_SOURCE_DIR}/cnpy    
     ${CMAKE_SOURCE_DIR}/indicators/include 
+    ${FFTW3_INCLUDE_DIR} # FIXED: Add FFTW3 include dir
 )
 
 # Add compile options for the module
@@ -93,6 +100,7 @@ target_link_libraries(_pyising PRIVATE
     indicators
     OpenMP::OpenMP_CXX
     MPI::MPI_CXX
+    ${FFTW3_LIBRARY} # FIXED: Link FFTW3
 )
 
 set_target_properties(_pyising PROPERTIES INSTALL_RPATH "$ORIGIN")
