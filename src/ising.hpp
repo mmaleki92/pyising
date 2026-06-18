@@ -1,5 +1,5 @@
 #pragma once
-#define _USE_MATH_DEFINES // Ensure M_PI is defined
+#define _USE_MATH_DEFINES 
 #include <string>
 #include <vector>
 #include <random>
@@ -8,6 +8,7 @@
 #include <pcg_random.hpp>
 #include <cmath>
 #include <mpi.h>
+#include <fftw3.h>
 
 struct Results {
     double binder;
@@ -39,6 +40,8 @@ class Ising2D
 {
 public:
     Ising2D(int L, unsigned int seed);
+    ~Ising2D(); // NEW: Destructor to clean up FFTW memory
+    
     void initialize_spins();
     void compute_neighbors();
     void do_step_metropolis(double tstar, int N, int equ_N, int snapshot_interval);
@@ -76,6 +79,12 @@ private:
     int m_snapshot_count;
     int m_snapshot_interval;
     std::string m_config_save_path;
+    
+    // Persistent FFTW variables to avoid repeated allocations
+    fftw_complex* m_fftw_in;
+    fftw_complex* m_fftw_out;
+    fftw_plan m_fftw_p_forward;
+    fftw_plan m_fftw_p_backward;
     
     inline int wrap(int coord) const { return (coord + m_L) % m_L; }
     void metropolis_flip_spin(double tstar);
