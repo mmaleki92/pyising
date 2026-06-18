@@ -159,8 +159,28 @@ Ising2D::Ising2D(int L, unsigned int seed)
       m_snapshot_count(0), m_snapshot_interval(100),
       m_config_save_path("") {
     precompute_trig_factors();
-}
+    
+    // NEW: Allocate FFTW memory once per Ising object
+    m_fftw_in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
+    m_fftw_out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
 
+    // NEW: Thread-safe plan creation using OpenMP critical section
+    #pragma omp critical (fftw_plan_lock)
+    {
+        m_fftw_p_forward = fftw_plan_dft_2d(m_L, m_L, m_fftw_in, m_fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
+        m_fftw_p_backward = fftw_plan_dft_2d(m_L, m_L, m_fftw_in, m_fftw_out, FFTW_BACKWARD, FFTW_ESTIMATE);
+    }
+}
+// Safely clean up FFTW memory when the object is destroyed
+Ising2D::~Ising2D() {
+    #pragma omp critical (fftw_plan_lock)
+    {
+        if (m_fftw_p_forward) fftw_destroy_plan(m_fftw_p_forward);
+        if (m_fftw_p_backward) fftw_destroy_plan(m_fftw_p_backward);
+    }
+    if (m_fftw_in) fftw_free(m_fftw_in);
+    if (m_fftw_out) fftw_free(m_fftw_out);
+}
 void Ising2D::precompute_trig_factors() {
     m_cos_kx.resize(m_SIZE);
     m_sin_kx.resize(m_SIZE);
@@ -178,38 +198,35 @@ void Ising2D::precompute_trig_factors() {
     }
 }
 
+// Using persistent memory for massive speedup and no segfaults
 std::vector<double> Ising2D::calculate_correlation_function() const {
-    fftw_complex *in, *out;
-    fftw_plan p_forward, p_backward;
-
-    in = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
-    out = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * m_SIZE);
-
-    // Using [ 0 ] for Real part, [ 1 ] for Imaginary part
+    
+    // Copy spin config to the persistent input array
     for(int i = 0; i < m_SIZE; ++i) {
-        in[i][0] = static_cast<double>(m_spins[i]);
-        in[i][1] = 0.0; 
+        m_fftw_in[i][ 0 ] = static_cast<double>(m_spins[i]);
+        m_fftw_in[i][ 1 ] = 0.0; 
     }
 
-    p_forward = fftw_plan_dft_2d(m_L, m_L, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-    fftw_execute(p_forward);
+    // Execute the pre-built forward plan
+    fftw_execute(m_fftw_p_forward);
 
-    // Extracting [ 0 ] and [ 1 ] properly
+    // Compute power spectrum
     for(int i = 0; i < m_SIZE; ++i) {
-        double real = out[i][0];
-        double imag = out[i][1];
-        in[i][0] = real * real + imag * imag; 
-        in[i][1] = 0.0;
+        double real = m_fftw_out[i][ 0 ];
+        double imag = m_fftw_out[i][ 1 ];
+        m_fftw_in[i][ 0 ] = real * real + imag * imag; 
+        m_fftw_in[i][ 1 ] = 0.0;
     }
 
-    p_backward = fftw_plan_dft_2d(m_L, m_L, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
-    fftw_execute(p_backward);
+    // Execute the pre-built backward plan
+    fftw_execute(m_fftw_p_backward);
 
     int max_r = m_L / 2;
     std::vector<double> G_r(max_r + 1, 0.0);
     std::vector<long> counts(max_r + 1, 0);
     double norm_factor = static_cast<double>(m_SIZE);
 
+    // Radially average
     for (int y = 0; y < m_L; ++y) {
         for (int x = 0; x < m_L; ++x) {
             int dx = (x > m_L/2) ? m_L - x : x;
@@ -217,26 +234,22 @@ std::vector<double> Ising2D::calculate_correlation_function() const {
             int r = static_cast<int>(std::round(std::sqrt(dx*dx + dy*dy)));
 
             if (r <= max_r) {
-                // Extracting the real part [ 0 ] before dividing
-                G_r[r] += (out[y * m_L + x][0] / norm_factor);
+                G_r[r] += (m_fftw_out[y * m_L + x][ 0 ] / norm_factor);
                 counts[r]++;
             }
         }
     }
     
+    // Normalize
     for (int r = 0; r <= max_r; ++r) {
         if (counts[r] > 0) {
             G_r[r] /= (counts[r] * m_SIZE);
         }
     }
 
-    fftw_destroy_plan(p_forward);
-    fftw_destroy_plan(p_backward);
-    fftw_free(in);
-    fftw_free(out);
-
     return G_r;
 }
+
 
 void Ising2D::initialize_spins() {
     std::uniform_int_distribution<int> init_dist(0, 1);
